@@ -6,15 +6,11 @@ on:
     paths:
       - "sampledata/**"
       - ".github/workflows/actions/action.yaml"
-      - ".github/workflows/sampledata-ci.yaml"
-      - "pom.xml"
   pull_request:
     branches: ["main"]
     paths:
       - "sampledata/**"
       - ".github/workflows/actions/action.yaml"
-      - ".github/workflows/sampledata-ci.yaml"
-      - "pom.xml"
   workflow_dispatch:
 
 jobs:

@@ -6,15 +6,11 @@ on:
     paths:
       - "location/**"
       - ".github/workflows/actions/action.yaml"
-      - ".github/workflows/location-ci.yaml"
-      - "pom.xml"
   pull_request:
     branches: ["main"]
     paths:
       - "location/**"
       - ".github/workflows/actions/action.yaml"
-      - ".github/workflows/location-ci.yaml"
-      - "pom.xml"
   workflow_dispatch:
 
 jobs:
