@@ -1,0 +1,9 @@
+# Nâng cao: Service Mesh - Bắt buộc mTLS giữa tất cả service trong namespace yas
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: default-mtls
+  namespace: yas
+spec:
+  mtls:
+    mode: STRICT

@@ -1,0 +1,11 @@
+# Nâng cao: DestinationRule - Enforce mTLS cho service-to-service
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: default-mtls-destination
+  namespace: yas
+spec:
+  host: "*.yas.svc.cluster.local"
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL

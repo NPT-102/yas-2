@@ -29,3 +29,12 @@ hs_err_pid*
 .settings*
 .vscode
 *.iml
+
+# Istio binary (cài trên cluster, không commit)
+istio-1.29.1/
+
+# Minikube binary
+minikube-linux-amd64
+
+# Runtime data
+tempo-data/
