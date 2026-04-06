@@ -1,0 +1,116 @@
+name: Deploy to Staging
+
+# Yêu cầu 6b: Khi tag v* trên main -> build image với tag đó -> deploy vào namespace staging
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-and-deploy-staging:
+    runs-on: self-hosted
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get tag version
+        id: tag
+        run: echo "version=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USER }}
+          password: ${{ secrets.DOCKER_PASS }}
+
+      # Build & push tất cả Java services với release tag
+      - name: Build and Push Java services
+        env:
+          TAG: ${{ steps.tag.outputs.version }}
+        run: |
+          SERVICES="cart customer inventory location media order payment payment-paypal product promotion rating search tax recommendation sampledata webhook backoffice-bff storefront-bff"
+          for svc in $SERVICES; do
+            echo "=== Building ${svc} ==="
+            mvn clean install -pl ${svc} -am -DskipTests
+            docker build -t ${{ secrets.DOCKER_USER }}/${svc}:${TAG} ./${svc}
+            docker push ${{ secrets.DOCKER_USER }}/${svc}:${TAG}
+          done
+
+      # Build & push frontend services
+      - name: Build and Push Frontend services
+        env:
+          TAG: ${{ steps.tag.outputs.version }}
+        run: |
+          for svc in backoffice storefront; do
+            echo "=== Building ${svc} ==="
+            docker build -t ${{ secrets.DOCKER_USER }}/${svc}:${TAG} ./${svc}
+            docker push ${{ secrets.DOCKER_USER }}/${svc}:${TAG}
+          done
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Configure kubeconfig
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > $HOME/.kube/config
+
+      - name: Deploy yas-configuration to staging
+        run: |
+          cd k8s/charts
+          helm dependency build ./yas-configuration
+          helm upgrade --install yas-configuration ./yas-configuration \
+            --namespace staging --create-namespace \
+            --wait --timeout 5m
+
+      - name: Deploy all services to staging
+        env:
+          TAG: ${{ steps.tag.outputs.version }}
+          DOCKER_USER: ${{ secrets.DOCKER_USER }}
+        run: |
+          cd k8s/charts
+          DOMAIN="staging.yas.local.com"
+
+          # BFF + UI
+          for bff in backoffice-bff storefront-bff; do
+            helm dependency build ./${bff}
+            helm upgrade --install ${bff} ./${bff} \
+              --namespace staging --create-namespace \
+              --set backend.image.repository=${DOCKER_USER}/${bff} \
+              --set backend.image.tag=${TAG} \
+              --set backend.ingress.host="${DOMAIN}"
+          done
+
+          for ui in backoffice-ui storefront-ui; do
+            helm dependency build ./${ui}
+            helm upgrade --install ${ui} ./${ui} \
+              --namespace staging --create-namespace
+          done
+
+          # Backend services
+          SERVICES="cart customer inventory location media order payment payment-paypal product promotion rating search tax recommendation webhook sampledata"
+          for svc in $SERVICES; do
+            helm dependency build ./${svc}
+            helm upgrade --install ${svc} ./${svc} \
+              --namespace staging --create-namespace \
+              --set backend.image.repository=${DOCKER_USER}/${svc} \
+              --set backend.image.tag=${TAG} \
+              --set backend.ingress.host="api.${DOMAIN}"
+          done
+
+      - name: Summary
+        run: |
+          echo "## Staging Deployment" >> $GITHUB_STEP_SUMMARY
+          echo "Release: \`${{ steps.tag.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          kubectl get pods -n staging --no-headers 2>/dev/null | head -30 >> $GITHUB_STEP_SUMMARY || true

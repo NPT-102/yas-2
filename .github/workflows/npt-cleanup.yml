@@ -1,0 +1,34 @@
+name: cleanup_developer_build
+
+# Yêu cầu 5: Xóa phần triển khai developer ở mục 4
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Nhập "yes" để xác nhận xóa namespace developer'
+        required: true
+        default: 'no'
+
+jobs:
+  cleanup:
+    runs-on: self-hosted
+    if: github.event.inputs.confirm == 'yes'
+    steps:
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Configure kubeconfig
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > $HOME/.kube/config
+
+      - name: Delete developer namespace
+        run: |
+          echo "Deleting all resources in namespace 'developer'..."
+          kubectl delete namespace developer --ignore-not-found=true
+          echo "Namespace 'developer' deleted successfully."
+
+      - name: Summary
+        run: |
+          echo "## Cleanup Complete" >> $GITHUB_STEP_SUMMARY
+          echo "Namespace \`developer\` and all its resources have been deleted." >> $GITHUB_STEP_SUMMARY

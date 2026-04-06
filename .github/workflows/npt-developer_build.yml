@@ -1,0 +1,147 @@
+name: developer_build
+
+# Yêu cầu 4: Job CD cho developer, input service + branch, deploy lên K8S
+on:
+  workflow_dispatch:
+    inputs:
+      service_name:
+        description: 'Service muốn deploy branch riêng'
+        required: true
+        type: choice
+        options:
+          - tax
+          - cart
+          - order
+          - product
+          - customer
+          - inventory
+          - location
+          - media
+          - payment
+          - payment-paypal
+          - promotion
+          - rating
+          - search
+          - recommendation
+          - sampledata
+          - webhook
+      branch_name:
+        description: 'Tên branch cho service đã chọn (VD: dev_tax_service)'
+        required: true
+        default: 'main'
+
+jobs:
+  deploy-developer:
+    runs-on: self-hosted
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Configure kubeconfig
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > $HOME/.kube/config
+
+      - name: Get image tag from branch
+        id: get-tag
+        run: |
+          if [ "${{ inputs.branch_name }}" = "main" ]; then
+            echo "image_tag=latest" >> $GITHUB_OUTPUT
+          else
+            # Lấy commit SHA cuối cùng của branch đã chọn
+            git fetch origin ${{ inputs.branch_name }}
+            SHA=$(git rev-parse --short=7 origin/${{ inputs.branch_name }})
+            echo "image_tag=${SHA}" >> $GITHUB_OUTPUT
+            echo "Commit SHA for branch ${{ inputs.branch_name }}: ${SHA}"
+          fi
+
+      - name: Deploy yas-configuration
+        run: |
+          cd k8s/charts
+          helm dependency build ./yas-configuration
+          helm upgrade --install yas-configuration ./yas-configuration \
+            --namespace developer --create-namespace \
+            --wait --timeout 5m
+
+      - name: Deploy all services
+        env:
+          CUSTOM_SERVICE: ${{ inputs.service_name }}
+          CUSTOM_TAG: ${{ steps.get-tag.outputs.image_tag }}
+          DOCKER_USER: ${{ secrets.DOCKER_USER }}
+        run: |
+          cd k8s/charts
+          DOMAIN="developer.yas.local.com"
+
+          # Deploy BFF + UI
+          for bff in backoffice-bff storefront-bff; do
+            helm dependency build ./${bff}
+            helm upgrade --install ${bff} ./${bff} \
+              --namespace developer --create-namespace \
+              --set backend.ingress.host="${DOMAIN}"
+          done
+
+          for ui in backoffice-ui storefront-ui; do
+            helm dependency build ./${ui}
+            helm upgrade --install ${ui} ./${ui} \
+              --namespace developer --create-namespace
+          done
+
+          # Deploy backend services
+          SERVICES="cart customer inventory location media order payment payment-paypal product promotion rating search tax recommendation webhook sampledata"
+
+          for svc in $SERVICES; do
+            helm dependency build ./${svc}
+
+            if [ "${svc}" = "${CUSTOM_SERVICE}" ]; then
+              echo ">>> Deploying ${svc} with custom image: ${DOCKER_USER}/${svc}:${CUSTOM_TAG}"
+              helm upgrade --install ${svc} ./${svc} \
+                --namespace developer --create-namespace \
+                --set backend.image.repository=${DOCKER_USER}/${svc} \
+                --set backend.image.tag=${CUSTOM_TAG} \
+                --set backend.service.type=NodePort \
+                --set backend.ingress.host="api.${DOMAIN}"
+            else
+              helm upgrade --install ${svc} ./${svc} \
+                --namespace developer --create-namespace \
+                --set backend.ingress.host="api.${DOMAIN}"
+            fi
+          done
+
+      - name: Show access info
+        run: |
+          echo "## Developer Deployment Info" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Item | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Service | \`${{ inputs.service_name }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Branch | \`${{ inputs.branch_name }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Image Tag | \`${{ steps.get-tag.outputs.image_tag }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### Services in namespace developer:" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          kubectl get svc -n developer 2>/dev/null >> $GITHUB_STEP_SUMMARY || echo "Unable to get services" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+          # Lấy NodePort của service được deploy custom
+          NODE_PORT=$(kubectl get svc ${{ inputs.service_name }} -n developer -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "N/A")
+          WORKER_IP=$(kubectl get nodes -l 'node-role.kubernetes.io/worker=' -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null || echo "<WORKER_NODE_IP>")
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Access" >> $GITHUB_STEP_SUMMARY
+          echo "- NodePort: \`${NODE_PORT}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Worker IP: \`${WORKER_IP}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- URL: \`http://${WORKER_IP}:${NODE_PORT}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Add to /etc/hosts:" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "${WORKER_IP} developer.yas.local.com api.developer.yas.local.com" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
