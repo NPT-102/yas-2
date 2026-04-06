@@ -1,0 +1,71 @@
+name: Deploy to Dev
+
+# Yêu cầu 6a: main thay đổi -> auto deploy vào namespace dev
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy-dev:
+    runs-on: self-hosted
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Configure kubeconfig
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > $HOME/.kube/config
+
+      - name: Deploy yas-configuration
+        run: |
+          cd k8s/charts
+          helm dependency build ./yas-configuration
+          helm upgrade --install yas-configuration ./yas-configuration \
+            --namespace dev --create-namespace \
+            --wait --timeout 5m
+
+      - name: Deploy BFF and UI
+        run: |
+          cd k8s/charts
+          DOMAIN="dev.yas.local.com"
+
+          for bff in backoffice-bff storefront-bff; do
+            helm dependency build ./${bff}
+            helm upgrade --install ${bff} ./${bff} \
+              --namespace dev --create-namespace \
+              --set backend.ingress.host="${DOMAIN}"
+          done
+
+          for ui in backoffice-ui storefront-ui; do
+            helm dependency build ./${ui}
+            helm upgrade --install ${ui} ./${ui} \
+              --namespace dev --create-namespace
+          done
+
+      - name: Deploy backend services
+        run: |
+          cd k8s/charts
+          DOMAIN="dev.yas.local.com"
+          SERVICES="cart customer inventory location media order payment payment-paypal product promotion rating search tax recommendation webhook sampledata"
+
+          for svc in $SERVICES; do
+            helm dependency build ./${svc}
+            helm upgrade --install ${svc} ./${svc} \
+              --namespace dev --create-namespace \
+              --set backend.ingress.host="api.${DOMAIN}"
+          done
+
+      - name: Summary
+        run: |
+          echo "## Dev Deployment" >> $GITHUB_STEP_SUMMARY
+          echo "Commit: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          kubectl get pods -n dev --no-headers 2>/dev/null | head -30 >> $GITHUB_STEP_SUMMARY || true
