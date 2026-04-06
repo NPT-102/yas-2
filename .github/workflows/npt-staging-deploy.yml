@@ -82,14 +82,19 @@ jobs:
           DOMAIN="staging.yas.local.com"
 
           # BFF + UI
-          for bff in backoffice-bff storefront-bff; do
-            helm dependency build ./${bff}
-            helm upgrade --install ${bff} ./${bff} \
-              --namespace staging --create-namespace \
-              --set backend.image.repository=${DOCKER_USER}/${bff} \
-              --set backend.image.tag=${TAG} \
-              --set backend.ingress.host="${DOMAIN}"
-          done
+          helm dependency build ./backoffice-bff
+          helm upgrade --install backoffice-bff ./backoffice-bff \
+            --namespace staging --create-namespace \
+            --set backend.image.repository=${DOCKER_USER}/backoffice-bff \
+            --set backend.image.tag=${TAG} \
+            --set backend.ingress.host="backoffice.${DOMAIN}"
+
+          helm dependency build ./storefront-bff
+          helm upgrade --install storefront-bff ./storefront-bff \
+            --namespace staging --create-namespace \
+            --set backend.image.repository=${DOCKER_USER}/storefront-bff \
+            --set backend.image.tag=${TAG} \
+            --set backend.ingress.host="${DOMAIN}"
 
           for ui in backoffice-ui storefront-ui; do
             helm dependency build ./${ui}
