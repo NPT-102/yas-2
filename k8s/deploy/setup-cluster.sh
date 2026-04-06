@@ -48,6 +48,11 @@ helm upgrade --install kafka-cluster ./kafka/kafka-cluster \
 --set postgresql.username="$POSTGRESQL_USERNAME" \
 --set postgresql.password="$POSTGRESQL_PASSWORD"
 
+# Fix Kafka volume permissions on Minikube (hostPath provisioner creates 755 root:root volumes)
+echo "Waiting for Kafka PVC to be created..."
+sleep 30
+bash ./fix-kafka-permissions.sh
+
 #Install akhq
 akhq_hostname="akhq.$DOMAIN" yq -i '.hostname=env(akhq_hostname)' ./kafka/akhq.values.yaml
 helm upgrade --install akhq akhq/akhq \

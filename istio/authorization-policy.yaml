@@ -1,0 +1,143 @@
+# Nâng cao: Service Mesh - Authorization Policies
+# Chỉ cho phép service được phép giao tiếp mới kết nối được
+
+---
+# Deny all traffic by default trong namespace yas
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: deny-all
+  namespace: yas
+spec:
+  {}
+
+---
+# Cho phép BFF gọi đến tất cả backend services
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-bff-to-backends
+  namespace: yas
+spec:
+  action: ALLOW
+  rules:
+  - from:
+    - source:
+        principals:
+          - "cluster.local/ns/yas/sa/backoffice-bff"
+          - "cluster.local/ns/yas/sa/storefront-bff"
+
+---
+# Cho phép order gọi đến cart, payment, inventory, tax, customer
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-order-dependencies
+  namespace: yas
+spec:
+  selector:
+    matchLabels:
+      app: cart
+  action: ALLOW
+  rules:
+  - from:
+    - source:
+        principals: ["cluster.local/ns/yas/sa/order"]
+
+---
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-order-to-payment
+  namespace: yas
+spec:
+  selector:
+    matchLabels:
+      app: payment
+  action: ALLOW
+  rules:
+  - from:
+    - source:
+        principals: ["cluster.local/ns/yas/sa/order"]
+
+---
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-order-to-tax
+  namespace: yas
+spec:
+  selector:
+    matchLabels:
+      app: tax
+  action: ALLOW
+  rules:
+  - from:
+    - source:
+        principals: ["cluster.local/ns/yas/sa/order"]
+
+---
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-order-to-inventory
+  namespace: yas
+spec:
+  selector:
+    matchLabels:
+      app: inventory
+  action: ALLOW
+  rules:
+  - from:
+    - source:
+        principals: ["cluster.local/ns/yas/sa/order"]
+
+---
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-order-to-customer
+  namespace: yas
+spec:
+  selector:
+    matchLabels:
+      app: customer
+  action: ALLOW
+  rules:
+  - from:
+    - source:
+        principals: ["cluster.local/ns/yas/sa/order"]
+
+---
+# Cho phép payment gọi đến payment-paypal
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-payment-to-paypal
+  namespace: yas
+spec:
+  selector:
+    matchLabels:
+      app: payment-paypal
+  action: ALLOW
+  rules:
+  - from:
+    - source:
+        principals: ["cluster.local/ns/yas/sa/payment"]
+
+---
+# Cho phép search gọi đến product
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-search-to-product
+  namespace: yas
+spec:
+  selector:
+    matchLabels:
+      app: product
+  action: ALLOW
+  rules:
+  - from:
+    - source:
+        principals: ["cluster.local/ns/yas/sa/search"]
