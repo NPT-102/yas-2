@@ -1,4 +1,7 @@
-# Nâng cao: Service Mesh - Bắt buộc mTLS giữa tất cả service trong namespace yas
+# Nâng cao: Service Mesh - mTLS giữa tất cả service trong namespace yas
+# PERMISSIVE cho phép cả mTLS và plaintext — cần thiết vì Ingress NGINX
+# không nằm trong mesh (không có sidecar) → gửi plaintext HTTP.
+# Traffic giữa các service có sidecar vẫn tự động dùng mTLS.
 apiVersion: security.istio.io/v1beta1
 kind: PeerAuthentication
 metadata:
@@ -6,4 +9,4 @@ metadata:
   namespace: yas
 spec:
   mtls:
-    mode: STRICT
+    mode: PERMISSIVE
