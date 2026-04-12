@@ -71,16 +71,54 @@ ingress:
   #    hosts:
   #      - chart-example.local
 
-resources: {}
-  # We usually recommend not to specify default resources and to leave this as a conscious
-  # choice for the user. This also increases chances charts run on environments with little
-  # resources, such as Minikube. If you do want to specify resources, uncomment the following
-  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
-  # limits:
-  #   cpu: 100m
-  #   memory: 128Mi
-  # requests:
-  #   cpu: 100m
+apiIngress:
+  enabled: true
+  className: "nginx"
+  host: api.yas.local.com
+  annotations: {}
+  paths:
+    - path: /product
+      serviceName: product
+      servicePort: 80
+    - path: /media
+      serviceName: media
+      servicePort: 80
+    - path: /customer
+      serviceName: customer
+      servicePort: 80
+    - path: /cart
+      serviceName: cart
+      servicePort: 80
+    - path: /rating
+      serviceName: rating
+      servicePort: 80
+    - path: /order
+      serviceName: order
+      servicePort: 80
+    - path: /payment
+      serviceName: payment
+      servicePort: 80
+    - path: /location
+      serviceName: location
+      servicePort: 80
+    - path: /inventory
+      serviceName: inventory
+      servicePort: 80
+    - path: /tax
+      serviceName: tax
+      servicePort: 80
+    - path: /promotion
+      serviceName: promotion
+      servicePort: 80
+    - path: /search
+      serviceName: search
+      servicePort: 80
+
+resources:
+  requests:
+    memory: 64Mi
+  limits:
+    memory: 128Mi
   #   memory: 128Mi
 
 autoscaling:

@@ -1,0 +1,27 @@
+{{- if .Values.apiIngress.enabled -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "swagger-ui.fullname" . }}-api
+  labels:
+    {{- include "swagger-ui.labels" . | nindent 4 }}
+  {{- with .Values.apiIngress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  ingressClassName: {{ .Values.apiIngress.className }}
+  rules:
+    - host: {{ .Values.apiIngress.host | quote }}
+      http:
+        paths:
+          {{- range .Values.apiIngress.paths }}
+          - path: {{ .path }}
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .serviceName }}
+                port:
+                  number: {{ .servicePort }}
+          {{- end }}
+{{- end }}

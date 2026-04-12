@@ -22,7 +22,6 @@ serviceAccount:
 podAnnotations: {}
 podSecurityContext:
   fsGroup: 5050
-
 securityContext: {}
 # capabilities:
 #   drop:

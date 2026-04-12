@@ -1,0 +1,15 @@
+# helm/yas/values.yaml
+tax:
+  image:
+    repository: your_dockerhub/tax-service
+    tag: "main"
+
+cart:
+  image:
+    repository: your_dockerhub/cart-service
+    tag: "main"
+
+order:
+  image:
+    repository: your_dockerhub/order-service
+    tag: "main"

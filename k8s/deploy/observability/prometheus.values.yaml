@@ -1,8 +1,45 @@
 hostname: &hostname grafana.yas.local.com
+alertmanager:
+  enabled: false
+prometheusOperator:
+  resources:
+    requests:
+      memory: 64Mi
+    limits:
+      memory: 128Mi
+kube-state-metrics:
+  resources:
+    requests:
+      memory: 32Mi
+    limits:
+      memory: 64Mi
+prometheus-node-exporter:
+  resources:
+    requests:
+      memory: 16Mi
+    limits:
+      memory: 32Mi
 prometheus:
   prometheusSpec:
     enableRemoteWriteReceiver: true
+    resources:
+      requests:
+        memory: 256Mi
+      limits:
+        memory: 512Mi
 grafana:
+  assertNoLeakedSecrets: false
+  resources:
+    requests:
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+  sidecar:
+    resources:
+      requests:
+        memory: 32Mi
+      limits:
+        memory: 64Mi
   grafana.ini:
     database:
       type: postgres
