@@ -53,15 +53,50 @@ jobs:
       - name: Get image tag from branch
         id: get-tag
         run: |
-          if [ "${{ inputs.branch_name }}" = "main" ]; then
-            echo "image_tag=latest" >> $GITHUB_OUTPUT
+          # Lấy commit SHA cuối cùng của branch đã chọn
+          git fetch origin ${{ inputs.branch_name }}
+          SHA=$(git rev-parse --short=7 origin/${{ inputs.branch_name }})
+          echo "image_tag=${SHA}" >> $GITHUB_OUTPUT
+          echo "Commit SHA for branch ${{ inputs.branch_name }}: ${SHA}"
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USER }}
+          password: ${{ secrets.DOCKER_PASS }}
+
+      - name: Build and push service image
+        env:
+          DOCKER_USER: ${{ secrets.DOCKER_USER }}
+          CUSTOM_SERVICE: ${{ inputs.service_name }}
+          CUSTOM_TAG: ${{ steps.get-tag.outputs.image_tag }}
+        run: |
+          # Checkout branch code cho service cần build
+          git checkout origin/${{ inputs.branch_name }} -- ${{ inputs.service_name }}/
+
+          # Xác định loại service (Java hay Frontend)
+          FRONTEND_SERVICES="backoffice storefront"
+          if echo "$FRONTEND_SERVICES" | grep -qw "${CUSTOM_SERVICE}"; then
+            echo ">>> Building frontend service: ${CUSTOM_SERVICE}"
+            docker build -t ${DOCKER_USER}/${CUSTOM_SERVICE}:${CUSTOM_TAG} ./${CUSTOM_SERVICE}
           else
-            # Lấy commit SHA cuối cùng của branch đã chọn
-            git fetch origin ${{ inputs.branch_name }}
-            SHA=$(git rev-parse --short=7 origin/${{ inputs.branch_name }})
-            echo "image_tag=${SHA}" >> $GITHUB_OUTPUT
-            echo "Commit SHA for branch ${{ inputs.branch_name }}: ${SHA}"
+            echo ">>> Building Java service: ${CUSTOM_SERVICE}"
+            mvn clean install -pl ${CUSTOM_SERVICE} -am -DskipTests
+            docker build -t ${DOCKER_USER}/${CUSTOM_SERVICE}:${CUSTOM_TAG} ./${CUSTOM_SERVICE}
           fi
+
+          docker push ${DOCKER_USER}/${CUSTOM_SERVICE}:${CUSTOM_TAG}
+          echo ">>> Pushed image: ${DOCKER_USER}/${CUSTOM_SERVICE}:${CUSTOM_TAG}"
+
+          # Quay lại code gốc cho Helm charts
+          git checkout -- .
 
       - name: Deploy yas-configuration
         run: |
@@ -97,8 +132,8 @@ jobs:
               --namespace developer --create-namespace
           done
 
-          # Deploy backend services
-          SERVICES="cart customer inventory location media order payment payment-paypal product promotion rating search tax recommendation webhook sampledata"
+          # Deploy backend services (bỏ payment-paypal vì image lỗi)
+          SERVICES="cart customer inventory location media order payment product promotion rating search tax recommendation webhook sampledata"
 
           for svc in $SERVICES; do
             helm dependency build ./${svc}
@@ -112,8 +147,10 @@ jobs:
                 --set backend.service.type=NodePort \
                 --set backend.ingress.host="api.${DOMAIN}"
             else
+              # Đảm bảo dùng image tag latest từ ghcr.io gốc
               helm upgrade --install ${svc} ./${svc} \
                 --namespace developer --create-namespace \
+                --set backend.image.tag=latest \
                 --set backend.ingress.host="api.${DOMAIN}"
             fi
           done

@@ -57,12 +57,13 @@ jobs:
         run: |
           cd k8s/charts
           DOMAIN="dev.yas.local.com"
-          SERVICES="cart customer inventory location media order payment payment-paypal product promotion rating search tax recommendation webhook sampledata"
+          SERVICES="cart customer inventory location media order payment product promotion rating search tax recommendation webhook sampledata"
 
           for svc in $SERVICES; do
             helm dependency build ./${svc}
             helm upgrade --install ${svc} ./${svc} \
               --namespace dev --create-namespace \
+              --set backend.image.tag=latest \
               --set backend.ingress.host="api.${DOMAIN}"
           done
 
