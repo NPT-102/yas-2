@@ -12,6 +12,22 @@ spec:
   {}
 
 ---
+# Cho phép Ingress Controller (ngoài mesh) truy cập vào YAS services
+# Ingress NGINX không có sidecar → không có mTLS principal → dùng notPrincipals: ["*"]
+# để match traffic từ source KHÔNG có identity (= ngoài mesh)
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-ingress-to-yas
+  namespace: yas
+spec:
+  action: ALLOW
+  rules:
+  - from:
+    - source:
+        notPrincipals: ["*"]
+
+---
 # Cho phép BFF gọi đến tất cả backend services
 apiVersion: security.istio.io/v1beta1
 kind: AuthorizationPolicy
