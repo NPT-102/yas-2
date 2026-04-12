@@ -59,7 +59,7 @@ git push origin dev_tax_service
 kubectl get pods -n developer
 
 # Kiểm tra service cart đang chạy image từ branch
-kubectl describe pod -n developer -l app=cart | grep Image
+kubectl describe pod -n developer -l app.kubernetes.io/name=cart | grep Image
 ```
 
 5. **Chụp screenshot:** workflow run + pods running trong namespace developer
@@ -144,8 +144,8 @@ kubectl get pods -n staging
 # Xác nhận mTLS STRICT đang bật
 kubectl get peerauthentication -n yas
 
-# Describe 1 pod để thấy mTLS status
-istio-1.24.3/bin/istioctl x describe pod $(kubectl get pod -n yas -l app=tax -o jsonpath='{.items[0].metadata.name}') -n yas
+# Describe 1 pod để thấy mTLS status (dùng format pod.namespace)
+istio-1.24.3/bin/istioctl x describe pod $(kubectl get pod -n yas -l app.kubernetes.io/name=tax -o jsonpath='{.items[0].metadata.name}').yas
 ```
 
 **Chụp screenshot:** output cho thấy mTLS STRICT enabled.
@@ -153,16 +153,16 @@ istio-1.24.3/bin/istioctl x describe pod $(kubectl get pod -n yas -l app=tax -o 
 ### B2. Test Authorization Policy
 
 ```bash
-# Test ALLOW: order → tax (phải thành công)
-kubectl exec -n yas deploy/order -c order -- curl -s -o /dev/null -w "%{http_code}" http://tax.yas.svc.cluster.local/tax/actuator/health
-# Expected: 200
+# Test ALLOW: storefront-bff → tax (được phép, tax trả 401 Unauthorized — không phải 403 Istio)
+kubectl exec -n yas deploy/storefront-bff -c storefront-bff -- wget -S -T 5 -O /dev/null http://tax.yas.svc.cluster.local/tax/api/taxes 2>&1 | grep HTTP
+# Expected: 401 Unauthorized (request TỚI ĐƯỢC tax — AuthZ ALLOWED)
 
-# Test DENY: search → tax (phải bị chặn)
-kubectl exec -n yas deploy/search -c search -- curl -s -o /dev/null -w "%{http_code}" http://tax.yas.svc.cluster.local/tax/actuator/health
-# Expected: 403 (RBAC: access denied)
+# Test DENY: order → tax (bị Istio chặn trước khi tới tax)
+kubectl exec -n yas deploy/order -c order -- wget -S -T 5 -O /dev/null http://tax.yas.svc.cluster.local/tax/api/taxes 2>&1 | grep HTTP
+# Expected: 403 Forbidden (Istio RBAC: access denied)
 ```
 
-**Chụp screenshot:** 1 lệnh trả 200, 1 lệnh trả 403.
+**Chụp screenshot:** 1 lệnh trả 401 (ALLOW — request đến được service), 1 lệnh trả 403 (DENY — Istio chặn).
 
 ### B3. Test Retry Policy
 
