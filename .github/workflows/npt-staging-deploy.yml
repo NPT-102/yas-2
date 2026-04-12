@@ -35,7 +35,7 @@ jobs:
         env:
           TAG: ${{ steps.tag.outputs.version }}
         run: |
-          SERVICES="cart customer inventory location media order payment payment-paypal product promotion rating search tax recommendation sampledata webhook backoffice-bff storefront-bff"
+          SERVICES="cart customer inventory location media order payment product promotion rating search tax recommendation sampledata webhook backoffice-bff storefront-bff"
           for svc in $SERVICES; do
             echo "=== Building ${svc} ==="
             mvn clean install -pl ${svc} -am -DskipTests
@@ -103,7 +103,7 @@ jobs:
           done
 
           # Backend services
-          SERVICES="cart customer inventory location media order payment payment-paypal product promotion rating search tax recommendation webhook sampledata"
+          SERVICES="cart customer inventory location media order payment product promotion rating search tax recommendation webhook sampledata"
           for svc in $SERVICES; do
             helm dependency build ./${svc}
             helm upgrade --install ${svc} ./${svc} \
