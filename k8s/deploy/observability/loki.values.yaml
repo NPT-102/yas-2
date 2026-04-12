@@ -1,22 +1,80 @@
 write:
   replicas: 1
+  resources:
+    requests:
+      memory: 128Mi
+    limits:
+      memory: 256Mi
 read:
   replicas: 1
+  resources:
+    requests:
+      memory: 128Mi
+    limits:
+      memory: 256Mi
 backend:
   replicas: 1
+  resources:
+    requests:
+      memory: 128Mi
+    limits:
+      memory: 256Mi
 loki:
   commonConfig:
     replication_factor: 1
   auth_enabled: false
+  schemaConfig:
+    configs:
+      - from: "2024-01-01"
+        store: tsdb
+        object_store: filesystem
+        schema: v13
+        index:
+          prefix: loki_index_
+          period: 24h
 test:
   enabled: false
 storage:
   type: 'filesystem'
 minio:
   enabled: true
+  resources:
+    requests:
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+  securityContext:
+    enabled: false
+  podSecurityContext:
+    enabled: false
+  containerSecurityContext:
+    enabled: false
 
 monitoring:
   selfMonitoring:
     enabled: false
     grafanaAgent:
       installOperator: false
+  lokiCanary:
+    enabled: false
+
+gateway:
+  resources:
+    requests:
+      memory: 32Mi
+    limits:
+      memory: 64Mi
+
+chunksCache:
+  resources:
+    requests:
+      memory: 64Mi
+    limits:
+      memory: 128Mi
+
+resultsCache:
+  resources:
+    requests:
+      memory: 64Mi
+    limits:
+      memory: 128Mi

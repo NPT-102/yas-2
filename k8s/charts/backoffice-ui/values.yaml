@@ -6,3 +6,8 @@ ui:
   fullnameOverride: backoffice-ui
   ingress:
     enabled: false
+  resources:
+    requests:
+      memory: 256Mi
+    limits:
+      memory: 512Mi

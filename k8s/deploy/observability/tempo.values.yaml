@@ -2,3 +2,8 @@ tempo:
   metricsGenerator:
     enabled: true
     remoteWriteUrl: "http://prometheus-kube-prometheus-prometheus:9090/api/v1/write"
+  resources:
+    requests:
+      memory: 128Mi
+    limits:
+      memory: 256Mi

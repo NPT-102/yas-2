@@ -9,6 +9,14 @@ spec:
   roles:
     - controller
     - broker
+  jvmOptions:
+    -Xms: 256m
+    -Xmx: 512m
+  resources:
+    requests:
+      memory: 512Mi
+    limits:
+      memory: 768Mi
   storage:
     type: jbod
     volumes:
@@ -27,6 +35,14 @@ metadata:
 spec:
   kafka:
     version: 4.1.0
+    jvmOptions:
+      -Xms: 256m
+      -Xmx: 512m
+    resources:
+      requests:
+        memory: 512Mi
+      limits:
+        memory: 768Mi
     listeners:
       - name: plain
         port: 9092
@@ -49,5 +65,15 @@ spec:
       default.replication.factor: 1
       min.insync.replicas: 1
   entityOperator:
-    topicOperator: {}
-    userOperator: {}
+    topicOperator:
+      resources:
+        requests:
+          memory: 256Mi
+        limits:
+          memory: 512Mi
+    userOperator:
+      resources:
+        requests:
+          memory: 256Mi
+        limits:
+          memory: 512Mi

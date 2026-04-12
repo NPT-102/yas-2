@@ -21,6 +21,11 @@ ui:
       value: http://storefront.yas.local.com/api
   ingress:
     enabled: false
+  resources:
+    requests:
+      memory: 256Mi
+    limits:
+      memory: 512Mi
 
 #storefrontEnvProduction: |
 #  API_BASE_PATH=http://storefront.yas.local.com/api

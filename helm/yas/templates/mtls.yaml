@@ -1,0 +1,8 @@
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: default # Áp dụng cho toàn bộ namespace default
+spec:
+  mtls:
+    mode: STRICT # BẮT BUỘC toàn bộ traffic phải được mã hóa

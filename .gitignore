@@ -32,6 +32,7 @@ hs_err_pid*
 
 # Istio binary (cài trên cluster, không commit)
 istio-1.29.1/
+istio-1.24.3/
 
 # Minikube binary
 minikube-linux-amd64
