@@ -1,0 +1,3 @@
+# Override parent .gitignore - ArgoCD needs these files
+!Chart.lock
+!charts/*.tgz
