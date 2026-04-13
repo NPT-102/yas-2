@@ -1,0 +1,29 @@
+# ArgoCD Application cho môi trường DEV
+# 1 app duy nhất (umbrella chart) chứa TẤT CẢ services
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: yas-dev
+  namespace: argocd
+  labels:
+    environment: dev
+    project: yas
+spec:
+  project: yas
+  source:
+    repoURL: https://github.com/NPT-102/yas-2.git
+    targetRevision: main
+    path: k8s/charts/yas-dev
+    helm:
+      valueFiles:
+        - values.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: dev
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

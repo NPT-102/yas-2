@@ -1,0 +1,129 @@
+# Umbrella values for YAS Staging environment
+# Each key matches a dependency name in Chart.yaml
+
+cart:
+  backend:
+    replicaCount: 0
+    image:
+      tag: v1.0.0
+
+customer:
+  backend:
+    replicaCount: 0
+    image:
+      tag: v1.0.0
+
+inventory:
+  backend:
+    replicaCount: 0
+    image:
+      tag: v1.0.0
+
+location:
+  backend:
+    replicaCount: 0
+    image:
+      tag: v1.0.0
+
+media:
+  backend:
+    replicaCount: 0
+    image:
+      tag: v1.0.0
+
+order:
+  backend:
+    replicaCount: 0
+    image:
+      tag: v1.0.0
+
+payment:
+  backend:
+    replicaCount: 0
+    image:
+      tag: v1.0.0
+
+payment-paypal:
+  backend:
+    replicaCount: 0
+    image:
+      tag: v1.0.0
+
+product:
+  backend:
+    replicaCount: 0
+    image:
+      tag: v1.0.0
+
+promotion:
+  backend:
+    replicaCount: 0
+    image:
+      tag: v1.0.0
+
+rating:
+  backend:
+    replicaCount: 0
+    image:
+      tag: v1.0.0
+
+recommendation:
+  backend:
+    replicaCount: 0
+    image:
+      tag: v1.0.0
+
+search:
+  backend:
+    replicaCount: 0
+    image:
+      tag: v1.0.0
+
+tax:
+  backend:
+    replicaCount: 0
+    image:
+      tag: v1.0.0
+
+webhook:
+  backend:
+    replicaCount: 0
+    image:
+      tag: v1.0.0
+
+sampledata:
+  backend:
+    replicaCount: 0
+    image:
+      tag: v1.0.0
+
+backoffice-bff:
+  backend:
+    replicaCount: 0
+    image:
+      tag: v1.0.0
+    ingress:
+      host: backoffice.staging.yas.local.com
+
+storefront-bff:
+  backend:
+    replicaCount: 0
+    image:
+      tag: v1.0.0
+    ingress:
+      host: staging.yas.local.com
+
+backoffice-ui:
+  ui:
+    replicaCount: 0
+    image:
+      tag: v1.0.0
+
+storefront-ui:
+  ui:
+    replicaCount: 0
+    image:
+      tag: v1.0.0
+    extraEnvs:
+      - name: API_BASE_PATH
+        value: http://staging.yas.local.com/api
