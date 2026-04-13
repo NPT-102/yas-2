@@ -1,0 +1,4 @@
+# Dev environment overrides
+ui:
+  image:
+    tag: latest

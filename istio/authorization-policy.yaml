@@ -12,9 +12,8 @@ spec:
   {}
 
 ---
-# Cho phép Ingress Controller (ngoài mesh) truy cập vào YAS services
-# Ingress NGINX không có sidecar → không có mTLS principal → dùng notPrincipals: ["*"]
-# để match traffic từ source KHÔNG có identity (= ngoài mesh)
+# Cho phép Ingress Controller trong mesh truy cập vào YAS services
+# ingress-nginx đã được inject sidecar nên có identity rõ ràng trong mesh.
 apiVersion: security.istio.io/v1beta1
 kind: AuthorizationPolicy
 metadata:
@@ -25,7 +24,8 @@ spec:
   rules:
   - from:
     - source:
-        notPrincipals: ["*"]
+        principals:
+          - "cluster.local/ns/ingress-nginx/sa/ingress-nginx"
 
 ---
 # Cho phép BFF gọi đến tất cả backend services
@@ -53,7 +53,7 @@ metadata:
 spec:
   selector:
     matchLabels:
-      app: cart
+      app.kubernetes.io/name: cart
   action: ALLOW
   rules:
   - from:
@@ -69,7 +69,7 @@ metadata:
 spec:
   selector:
     matchLabels:
-      app: payment
+      app.kubernetes.io/name: payment
   action: ALLOW
   rules:
   - from:
@@ -85,7 +85,7 @@ metadata:
 spec:
   selector:
     matchLabels:
-      app: tax
+      app.kubernetes.io/name: tax
   action: ALLOW
   rules:
   - from:
@@ -101,7 +101,7 @@ metadata:
 spec:
   selector:
     matchLabels:
-      app: inventory
+      app.kubernetes.io/name: inventory
   action: ALLOW
   rules:
   - from:
@@ -117,7 +117,7 @@ metadata:
 spec:
   selector:
     matchLabels:
-      app: customer
+      app.kubernetes.io/name: customer
   action: ALLOW
   rules:
   - from:
@@ -134,7 +134,7 @@ metadata:
 spec:
   selector:
     matchLabels:
-      app: payment-paypal
+      app.kubernetes.io/name: payment-paypal
   action: ALLOW
   rules:
   - from:
@@ -151,7 +151,7 @@ metadata:
 spec:
   selector:
     matchLabels:
-      app: product
+      app.kubernetes.io/name: product
   action: ALLOW
   rules:
   - from:

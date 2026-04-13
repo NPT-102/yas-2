@@ -1,6 +1,7 @@
-name: Deploy to Dev
+name: Deploy to Dev (ArgoCD)
 
-# Yêu cầu 6a: main thay đổi -> auto deploy vào namespace dev
+# Yêu cầu 6a: main thay đổi -> ArgoCD auto-sync vào namespace dev
+# ArgoCD ApplicationSet "yas-dev" watch main branch → auto deploy tất cả services
 on:
   push:
     branches:
@@ -13,9 +14,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Helm
-        uses: azure/setup-helm@v4
-
       - name: Setup kubectl
         uses: azure/setup-kubectl@v4
 
@@ -24,52 +22,44 @@ jobs:
           mkdir -p $HOME/.kube
           echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > $HOME/.kube/config
 
-      - name: Deploy yas-configuration
+      # ArgoCD tự động sync khi phát hiện thay đổi trên main branch
+      # Step này trigger manual sync để đảm bảo deploy ngay lập tức
+      - name: Trigger ArgoCD Sync for Dev
         run: |
-          cd k8s/charts
-          helm dependency build ./yas-configuration
-          helm upgrade --install yas-configuration ./yas-configuration \
-            --namespace dev --create-namespace \
-            --wait --timeout 5m
+          # Cài argocd CLI nếu chưa có
+          if ! command -v argocd &> /dev/null; then
+            curl -sSL -o /usr/local/bin/argocd https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+            chmod +x /usr/local/bin/argocd
+          fi
 
-      - name: Deploy BFF and UI
-        run: |
-          cd k8s/charts
-          DOMAIN="dev.yas.local.com"
+          # Login ArgoCD (dùng admin password từ secret)
+          ARGOCD_PASSWORD=$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d)
+          argocd login argocd-server.argocd.svc.cluster.local:443 \
+            --username admin \
+            --password "$ARGOCD_PASSWORD" \
+            --insecure \
+            --grpc-web
 
-          helm dependency build ./backoffice-bff
-          helm upgrade --install backoffice-bff ./backoffice-bff \
-            --namespace dev --create-namespace \
-            --set backend.ingress.host="backoffice.${DOMAIN}"
-
-          helm dependency build ./storefront-bff
-          helm upgrade --install storefront-bff ./storefront-bff \
-            --namespace dev --create-namespace \
-            --set backend.ingress.host="${DOMAIN}"
-
-          for ui in backoffice-ui storefront-ui; do
-            helm dependency build ./${ui}
-            helm upgrade --install ${ui} ./${ui} \
-              --namespace dev --create-namespace
+          # Sync tất cả apps thuộc môi trường dev
+          APPS=$(argocd app list -l environment=dev -o name 2>/dev/null || true)
+          for app in $APPS; do
+            echo "Syncing: $app"
+            argocd app sync "$app" --async || true
           done
 
-      - name: Deploy backend services
+      - name: Wait for ArgoCD Sync
         run: |
-          cd k8s/charts
-          DOMAIN="dev.yas.local.com"
-          SERVICES="cart customer inventory location media order payment product promotion rating search tax recommendation webhook sampledata"
-
-          for svc in $SERVICES; do
-            helm dependency build ./${svc}
-            helm upgrade --install ${svc} ./${svc} \
-              --namespace dev --create-namespace \
-              --set backend.image.tag=latest \
-              --set backend.ingress.host="api.${DOMAIN}"
-          done
+          echo "Waiting for ArgoCD to sync dev apps..."
+          sleep 30
+          kubectl get pods -n dev --no-headers 2>/dev/null | head -30
 
       - name: Summary
         run: |
-          echo "## Dev Deployment" >> $GITHUB_STEP_SUMMARY
+          echo "## Dev Deployment (ArgoCD)" >> $GITHUB_STEP_SUMMARY
           echo "Commit: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "ArgoCD auto-syncs all services to namespace **dev** from main branch" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Pods in dev namespace:" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
           kubectl get pods -n dev --no-headers 2>/dev/null | head -30 >> $GITHUB_STEP_SUMMARY || true
+          echo '```' >> $GITHUB_STEP_SUMMARY

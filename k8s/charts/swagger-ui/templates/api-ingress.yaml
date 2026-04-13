@@ -1,27 +1,38 @@
 {{- if .Values.apiIngress.enabled -}}
+{{- range .Values.apiIngress.paths }}
+{{- $serviceName := .serviceName -}}
+{{- $annotations := merge (dict) $.Values.apiIngress.annotations -}}
+{{- if eq $.Values.apiIngress.className "nginx" }}
+  {{- if not (hasKey $annotations "nginx.ingress.kubernetes.io/service-upstream") }}
+    {{- $_ := set $annotations "nginx.ingress.kubernetes.io/service-upstream" "true" }}
+  {{- end }}
+  {{- if not (hasKey $annotations "nginx.ingress.kubernetes.io/upstream-vhost") }}
+    {{- $_ := set $annotations "nginx.ingress.kubernetes.io/upstream-vhost" (printf "%s.%s.svc.cluster.local" $serviceName $.Release.Namespace) }}
+  {{- end }}
+{{- end }}
+---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: {{ include "swagger-ui.fullname" . }}-api
+  name: {{ include "swagger-ui.fullname" $ }}-api-{{ $serviceName }}
   labels:
-    {{- include "swagger-ui.labels" . | nindent 4 }}
-  {{- with .Values.apiIngress.annotations }}
+    {{- include "swagger-ui.labels" $ | nindent 4 }}
+  {{- with $annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 spec:
-  ingressClassName: {{ .Values.apiIngress.className }}
+  ingressClassName: {{ $.Values.apiIngress.className }}
   rules:
-    - host: {{ .Values.apiIngress.host | quote }}
+    - host: {{ $.Values.apiIngress.host | quote }}
       http:
         paths:
-          {{- range .Values.apiIngress.paths }}
           - path: {{ .path }}
             pathType: Prefix
             backend:
               service:
-                name: {{ .serviceName }}
+                name: {{ $serviceName }}
                 port:
                   number: {{ .servicePort }}
-          {{- end }}
+{{- end }}
 {{- end }}

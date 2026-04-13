@@ -1,0 +1,7 @@
+# Dev environment overrides
+ui:
+  image:
+    tag: latest
+  extraEnvs:
+    - name: API_BASE_PATH
+      value: http://dev.yas.local.com/api

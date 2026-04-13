@@ -1,0 +1,23 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: yas
+  namespace: argocd
+spec:
+  description: "YAS E-commerce Microservices Project"
+  # Cho phép deploy vào các namespace dev và staging
+  destinations:
+    - namespace: dev
+      server: https://kubernetes.default.svc
+    - namespace: staging
+      server: https://kubernetes.default.svc
+  # Cho phép sử dụng source từ repo GitHub
+  sourceRepos:
+    - https://github.com/NPT-102/yas-2.git
+  # Cho phép tạo các resource types cần thiết
+  clusterResourceWhitelist:
+    - group: ''
+      kind: Namespace
+  namespaceResourceWhitelist:
+    - group: '*'
+      kind: '*'

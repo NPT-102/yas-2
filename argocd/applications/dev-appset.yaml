@@ -1,0 +1,124 @@
+# ArgoCD ApplicationSet cho môi trường DEV
+# Tự động deploy TẤT CẢ services vào namespace dev khi main branch thay đổi
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: yas-dev
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - list:
+        elements:
+          # yas-configuration (phải deploy trước)
+          - name: yas-configuration
+            chart: yas-configuration
+            hasIngress: "false"
+            ingressHost: ""
+          # BFF services (có ingress)
+          - name: backoffice-bff
+            chart: backoffice-bff
+            hasIngress: "true"
+            ingressHost: "backoffice.dev.yas.local.com"
+          - name: storefront-bff
+            chart: storefront-bff
+            hasIngress: "true"
+            ingressHost: "dev.yas.local.com"
+          # UI services
+          - name: backoffice-ui
+            chart: backoffice-ui
+            hasIngress: "false"
+            ingressHost: ""
+          - name: storefront-ui
+            chart: storefront-ui
+            hasIngress: "false"
+            ingressHost: ""
+          # Backend services
+          - name: cart
+            chart: cart
+            hasIngress: "false"
+            ingressHost: ""
+          - name: customer
+            chart: customer
+            hasIngress: "false"
+            ingressHost: ""
+          - name: inventory
+            chart: inventory
+            hasIngress: "false"
+            ingressHost: ""
+          - name: location
+            chart: location
+            hasIngress: "false"
+            ingressHost: ""
+          - name: media
+            chart: media
+            hasIngress: "false"
+            ingressHost: ""
+          - name: order
+            chart: order
+            hasIngress: "false"
+            ingressHost: ""
+          - name: payment
+            chart: payment
+            hasIngress: "false"
+            ingressHost: ""
+          - name: product
+            chart: product
+            hasIngress: "false"
+            ingressHost: ""
+          - name: promotion
+            chart: promotion
+            hasIngress: "false"
+            ingressHost: ""
+          - name: rating
+            chart: rating
+            hasIngress: "false"
+            ingressHost: ""
+          - name: search
+            chart: search
+            hasIngress: "false"
+            ingressHost: ""
+          - name: tax
+            chart: tax
+            hasIngress: "false"
+            ingressHost: ""
+          - name: recommendation
+            chart: recommendation
+            hasIngress: "false"
+            ingressHost: ""
+          - name: webhook
+            chart: webhook
+            hasIngress: "false"
+            ingressHost: ""
+          - name: sampledata
+            chart: sampledata
+            hasIngress: "false"
+            ingressHost: ""
+  template:
+    metadata:
+      name: 'dev-{{.name}}'
+      namespace: argocd
+      labels:
+        environment: dev
+        project: yas
+    spec:
+      project: yas
+      source:
+        repoURL: https://github.com/NPT-102/yas-2.git
+        targetRevision: main
+        path: 'k8s/charts/{{.chart}}'
+        helm:
+          valueFiles:
+            - values.yaml
+            - values-dev.yaml
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: dev
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true

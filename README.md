@@ -83,7 +83,8 @@ https://github.com/nashtech-garage/yas/tree/main/k8s/deploy
 
 ## Documentation
 - [Architecture and components](https://github.com/nashtech-garage/yas/tree/main/docs)
-- [Developer guidelines](https://github.com/nashtech-garage/yas/tree/main/docs/developer-guidelines.md)
+- [Project docs index](project-docs/README.md)
+- [Developer guidelines](project-docs/developer-guidelines.md)
 
 ## Contributing
 - Give us a star

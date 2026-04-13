@@ -1,0 +1,6 @@
+# Dev environment overrides
+backend:
+  image:
+    tag: latest
+  ingress:
+    host: dev.yas.local.com
