@@ -1,0 +1,7 @@
+# Staging environment overrides
+ui:
+  image:
+    tag: v1.0.0
+  extraEnvs:
+    - name: API_BASE_PATH
+      value: http://staging.yas.local.com/api

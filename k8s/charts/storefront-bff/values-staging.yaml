@@ -1,0 +1,6 @@
+# Staging environment overrides
+backend:
+  image:
+    tag: v1.0.0
+  ingress:
+    host: staging.yas.local.com

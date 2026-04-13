@@ -1,6 +1,13 @@
 {{- if .Values.ingress.enabled -}}
 {{- $fullName := include "backend.fullname" . -}}
 {{- $svcPort := .Values.service.port -}}
+{{- $upstreamVhost := printf "%s.%s.svc.cluster.local" $fullName .Release.Namespace -}}
+{{- if and (eq .Values.ingress.className "nginx") (not (hasKey .Values.ingress.annotations "nginx.ingress.kubernetes.io/service-upstream")) }}
+  {{- $_ := set .Values.ingress.annotations "nginx.ingress.kubernetes.io/service-upstream" "true" }}
+{{- end }}
+{{- if and (eq .Values.ingress.className "nginx") (not (hasKey .Values.ingress.annotations "nginx.ingress.kubernetes.io/upstream-vhost")) }}
+  {{- $_ := set .Values.ingress.annotations "nginx.ingress.kubernetes.io/upstream-vhost" $upstreamVhost }}
+{{- end }}
 {{- if and .Values.ingress.className (not (semverCompare ">=1.18-0" .Capabilities.KubeVersion.GitVersion)) }}
   {{- if not (hasKey .Values.ingress.annotations "kubernetes.io/ingress.class") }}
   {{- $_ := set .Values.ingress.annotations "kubernetes.io/ingress.class" .Values.ingress.className}}

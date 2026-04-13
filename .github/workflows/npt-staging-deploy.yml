@@ -1,6 +1,6 @@
-name: Deploy to Staging
+name: Deploy to Staging (ArgoCD)
 
-# Yêu cầu 6b: Khi tag v* trên main -> build image với tag đó -> deploy vào namespace staging
+# Yêu cầu 6b: Khi tag v* → build image → cập nhật values-staging.yaml → ArgoCD auto-sync
 on:
   push:
     tags:
@@ -12,6 +12,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Get tag version
         id: tag
@@ -54,8 +56,71 @@ jobs:
             docker push ${{ secrets.DOCKER_USER }}/${svc}:${TAG}
           done
 
-      - name: Setup Helm
-        uses: azure/setup-helm@v4
+      # Cập nhật image tag trong values-staging.yaml → commit → ArgoCD tự động sync
+      - name: Update staging image tags
+        env:
+          TAG: ${{ steps.tag.outputs.version }}
+        run: |
+          cd k8s/charts
+
+          # Update backend services
+          BACKEND="cart customer inventory location media order payment product promotion rating search tax recommendation webhook sampledata"
+          for svc in $BACKEND; do
+            cat > ${svc}/values-staging.yaml << EOF
+          # Staging environment overrides - updated by CI at $(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          backend:
+            image:
+              tag: ${TAG}
+          EOF
+          done
+
+          # Update BFF services
+          cat > storefront-bff/values-staging.yaml << EOF
+          # Staging environment overrides - updated by CI at $(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          backend:
+            image:
+              tag: ${TAG}
+            ingress:
+              host: staging.yas.local.com
+          EOF
+
+          cat > backoffice-bff/values-staging.yaml << EOF
+          # Staging environment overrides - updated by CI at $(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          backend:
+            image:
+              tag: ${TAG}
+            ingress:
+              host: backoffice.staging.yas.local.com
+          EOF
+
+          # Update UI services
+          cat > storefront-ui/values-staging.yaml << EOF
+          # Staging environment overrides - updated by CI at $(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          ui:
+            image:
+              tag: ${TAG}
+            extraEnvs:
+              - name: API_BASE_PATH
+                value: http://staging.yas.local.com/api
+          EOF
+
+          cat > backoffice-ui/values-staging.yaml << EOF
+          # Staging environment overrides - updated by CI at $(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          ui:
+            image:
+              tag: ${TAG}
+          EOF
+
+      - name: Commit and push staging values
+        env:
+          TAG: ${{ steps.tag.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout main
+          git add k8s/charts/*/values-staging.yaml
+          git commit -m "chore: update staging image tags to ${TAG} [skip ci]" || echo "No changes"
+          git push origin main
 
       - name: Setup kubectl
         uses: azure/setup-kubectl@v4
@@ -65,57 +130,34 @@ jobs:
           mkdir -p $HOME/.kube
           echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > $HOME/.kube/config
 
-      - name: Deploy yas-configuration to staging
+      # Trigger ArgoCD sync ngay lập tức
+      - name: Trigger ArgoCD Sync for Staging
         run: |
-          cd k8s/charts
-          helm dependency build ./yas-configuration
-          helm upgrade --install yas-configuration ./yas-configuration \
-            --namespace staging --create-namespace \
-            --wait --timeout 5m
+          if ! command -v argocd &> /dev/null; then
+            curl -sSL -o /usr/local/bin/argocd https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+            chmod +x /usr/local/bin/argocd
+          fi
 
-      - name: Deploy all services to staging
-        env:
-          TAG: ${{ steps.tag.outputs.version }}
-          DOCKER_USER: ${{ secrets.DOCKER_USER }}
-        run: |
-          cd k8s/charts
-          DOMAIN="staging.yas.local.com"
+          ARGOCD_PASSWORD=$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d)
+          argocd login argocd-server.argocd.svc.cluster.local:443 \
+            --username admin \
+            --password "$ARGOCD_PASSWORD" \
+            --insecure \
+            --grpc-web
 
-          # BFF + UI
-          helm dependency build ./backoffice-bff
-          helm upgrade --install backoffice-bff ./backoffice-bff \
-            --namespace staging --create-namespace \
-            --set backend.image.repository=${DOCKER_USER}/backoffice-bff \
-            --set backend.image.tag=${TAG} \
-            --set backend.ingress.host="backoffice.${DOMAIN}"
-
-          helm dependency build ./storefront-bff
-          helm upgrade --install storefront-bff ./storefront-bff \
-            --namespace staging --create-namespace \
-            --set backend.image.repository=${DOCKER_USER}/storefront-bff \
-            --set backend.image.tag=${TAG} \
-            --set backend.ingress.host="${DOMAIN}"
-
-          for ui in backoffice-ui storefront-ui; do
-            helm dependency build ./${ui}
-            helm upgrade --install ${ui} ./${ui} \
-              --namespace staging --create-namespace
-          done
-
-          # Backend services
-          SERVICES="cart customer inventory location media order payment product promotion rating search tax recommendation webhook sampledata"
-          for svc in $SERVICES; do
-            helm dependency build ./${svc}
-            helm upgrade --install ${svc} ./${svc} \
-              --namespace staging --create-namespace \
-              --set backend.image.repository=${DOCKER_USER}/${svc} \
-              --set backend.image.tag=${TAG} \
-              --set backend.ingress.host="api.${DOMAIN}"
+          APPS=$(argocd app list -l environment=staging -o name 2>/dev/null || true)
+          for app in $APPS; do
+            echo "Syncing: $app"
+            argocd app sync "$app" --async || true
           done
 
       - name: Summary
         run: |
-          echo "## Staging Deployment" >> $GITHUB_STEP_SUMMARY
+          echo "## Staging Deployment (ArgoCD)" >> $GITHUB_STEP_SUMMARY
           echo "Release: \`${{ steps.tag.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "ArgoCD auto-syncs all services to namespace **staging**" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Pods in staging namespace:" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
           kubectl get pods -n staging --no-headers 2>/dev/null | head -30 >> $GITHUB_STEP_SUMMARY || true
+          echo '```' >> $GITHUB_STEP_SUMMARY

@@ -1,11 +1,258 @@
 # Nâng cao: DestinationRule - Enforce mTLS cho service-to-service
+# exportTo bao gồm ingress-nginx để sidecar của ingress-nginx cũng dùng mTLS
+# khi kết nối đến các service trong namespace yas.
+#
+# Tạo riêng cho từng service để Kiali validate được (wildcard host gây lỗi validation).
+
+---
 apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
 metadata:
-  name: default-mtls-destination
+  name: mtls-backoffice-bff
   namespace: yas
 spec:
-  host: "*.yas.svc.cluster.local"
+  host: backoffice-bff.yas.svc.cluster.local
+  exportTo: [".", "ingress-nginx"]
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: mtls-backoffice-ui
+  namespace: yas
+spec:
+  host: backoffice-ui.yas.svc.cluster.local
+  exportTo: [".", "ingress-nginx"]
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: mtls-cart
+  namespace: yas
+spec:
+  host: cart.yas.svc.cluster.local
+  exportTo: [".", "ingress-nginx"]
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: mtls-customer
+  namespace: yas
+spec:
+  host: customer.yas.svc.cluster.local
+  exportTo: [".", "ingress-nginx"]
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: mtls-inventory
+  namespace: yas
+spec:
+  host: inventory.yas.svc.cluster.local
+  exportTo: [".", "ingress-nginx"]
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: mtls-location
+  namespace: yas
+spec:
+  host: location.yas.svc.cluster.local
+  exportTo: [".", "ingress-nginx"]
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: mtls-media
+  namespace: yas
+spec:
+  host: media.yas.svc.cluster.local
+  exportTo: [".", "ingress-nginx"]
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: mtls-order
+  namespace: yas
+spec:
+  host: order.yas.svc.cluster.local
+  exportTo: [".", "ingress-nginx"]
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: mtls-payment
+  namespace: yas
+spec:
+  host: payment.yas.svc.cluster.local
+  exportTo: [".", "ingress-nginx"]
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: mtls-payment-paypal
+  namespace: yas
+spec:
+  host: payment-paypal.yas.svc.cluster.local
+  exportTo: [".", "ingress-nginx"]
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: mtls-product
+  namespace: yas
+spec:
+  host: product.yas.svc.cluster.local
+  exportTo: [".", "ingress-nginx"]
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: mtls-promotion
+  namespace: yas
+spec:
+  host: promotion.yas.svc.cluster.local
+  exportTo: [".", "ingress-nginx"]
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: mtls-rating
+  namespace: yas
+spec:
+  host: rating.yas.svc.cluster.local
+  exportTo: [".", "ingress-nginx"]
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: mtls-recommendation
+  namespace: yas
+spec:
+  host: recommendation.yas.svc.cluster.local
+  exportTo: [".", "ingress-nginx"]
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: mtls-sampledata
+  namespace: yas
+spec:
+  host: sampledata.yas.svc.cluster.local
+  exportTo: [".", "ingress-nginx"]
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: mtls-search
+  namespace: yas
+spec:
+  host: search.yas.svc.cluster.local
+  exportTo: [".", "ingress-nginx"]
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: mtls-storefront-bff
+  namespace: yas
+spec:
+  host: storefront-bff.yas.svc.cluster.local
+  exportTo: [".", "ingress-nginx"]
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: mtls-storefront-ui
+  namespace: yas
+spec:
+  host: storefront-ui.yas.svc.cluster.local
+  exportTo: [".", "ingress-nginx"]
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: mtls-swagger-ui
+  namespace: yas
+spec:
+  host: swagger-ui.yas.svc.cluster.local
+  exportTo: [".", "ingress-nginx"]
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: mtls-tax
+  namespace: yas
+spec:
+  host: tax.yas.svc.cluster.local
+  exportTo: [".", "ingress-nginx"]
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: mtls-webhook
+  namespace: yas
+spec:
+  host: webhook.yas.svc.cluster.local
+  exportTo: [".", "ingress-nginx"]
   trafficPolicy:
     tls:
       mode: ISTIO_MUTUAL

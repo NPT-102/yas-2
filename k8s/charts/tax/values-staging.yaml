@@ -1,0 +1,4 @@
+# Staging environment overrides
+backend:
+  image:
+    tag: v1.0.0
