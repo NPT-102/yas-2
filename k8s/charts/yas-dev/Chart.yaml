@@ -1,0 +1,71 @@
+apiVersion: v2
+name: yas-dev
+description: Umbrella Helm chart for YAS Dev environment
+type: application
+version: 0.1.0
+appVersion: "latest"
+
+dependencies:
+  - name: yas-configuration
+    version: 0.4.0
+    repository: file://../yas-configuration
+  - name: cart
+    version: 0.2.0
+    repository: file://../cart
+  - name: customer
+    version: 0.1.0
+    repository: file://../customer
+  - name: inventory
+    version: 0.1.0
+    repository: file://../inventory
+  - name: location
+    version: 0.1.0
+    repository: file://../location
+  - name: media
+    version: 0.1.0
+    repository: file://../media
+  - name: order
+    version: 0.2.0
+    repository: file://../order
+  - name: payment
+    version: 0.2.0
+    repository: file://../payment
+  - name: payment-paypal
+    version: 0.2.0
+    repository: file://../payment-paypal
+  - name: product
+    version: 0.1.0
+    repository: file://../product
+  - name: promotion
+    version: 0.1.0
+    repository: file://../promotion
+  - name: rating
+    version: 0.1.0
+    repository: file://../rating
+  - name: recommendation
+    version: 0.1.0
+    repository: file://../recommendation
+  - name: search
+    version: 0.1.0
+    repository: file://../search
+  - name: tax
+    version: 0.1.0
+    repository: file://../tax
+  - name: webhook
+    version: 0.1.0
+    repository: file://../webhook
+  - name: sampledata
+    version: 0.1.0
+    repository: file://../sampledata
+  - name: backoffice-bff
+    version: 0.1.0
+    repository: file://../backoffice-bff
+  - name: storefront-bff
+    version: 0.1.0
+    repository: file://../storefront-bff
+  - name: backoffice-ui
+    version: 0.1.0
+    repository: file://../backoffice-ui
+  - name: storefront-ui
+    version: 0.1.0
+    repository: file://../storefront-ui

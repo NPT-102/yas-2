@@ -1,0 +1,129 @@
+# Umbrella values for YAS Dev environment
+# Each key matches a dependency name in Chart.yaml
+
+cart:
+  backend:
+    replicaCount: 0
+    image:
+      tag: latest
+
+customer:
+  backend:
+    replicaCount: 0
+    image:
+      tag: latest
+
+inventory:
+  backend:
+    replicaCount: 0
+    image:
+      tag: latest
+
+location:
+  backend:
+    replicaCount: 0
+    image:
+      tag: latest
+
+media:
+  backend:
+    replicaCount: 0
+    image:
+      tag: latest
+
+order:
+  backend:
+    replicaCount: 0
+    image:
+      tag: latest
+
+payment:
+  backend:
+    replicaCount: 0
+    image:
+      tag: latest
+
+payment-paypal:
+  backend:
+    replicaCount: 0
+    image:
+      tag: latest
+
+product:
+  backend:
+    replicaCount: 0
+    image:
+      tag: latest
+
+promotion:
+  backend:
+    replicaCount: 0
+    image:
+      tag: latest
+
+rating:
+  backend:
+    replicaCount: 0
+    image:
+      tag: latest
+
+recommendation:
+  backend:
+    replicaCount: 0
+    image:
+      tag: latest
+
+search:
+  backend:
+    replicaCount: 0
+    image:
+      tag: latest
+
+tax:
+  backend:
+    replicaCount: 0
+    image:
+      tag: latest
+
+webhook:
+  backend:
+    replicaCount: 0
+    image:
+      tag: latest
+
+sampledata:
+  backend:
+    replicaCount: 0
+    image:
+      tag: latest
+
+backoffice-bff:
+  backend:
+    replicaCount: 0
+    image:
+      tag: latest
+    ingress:
+      host: backoffice.dev.yas.local.com
+
+storefront-bff:
+  backend:
+    replicaCount: 0
+    image:
+      tag: latest
+    ingress:
+      host: dev.yas.local.com
+
+backoffice-ui:
+  ui:
+    replicaCount: 0
+    image:
+      tag: latest
+
+storefront-ui:
+  ui:
+    replicaCount: 0
+    image:
+      tag: latest
+    extraEnvs:
+      - name: API_BASE_PATH
+        value: http://dev.yas.local.com/api
