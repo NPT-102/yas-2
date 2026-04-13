@@ -3,103 +3,103 @@
 
 cart:
   backend:
-    replicaCount: 0
+    replicaCount: 1
     image:
       tag: latest
 
 customer:
   backend:
-    replicaCount: 0
+    replicaCount: 1
     image:
       tag: latest
 
 inventory:
   backend:
-    replicaCount: 0
+    replicaCount: 1
     image:
       tag: latest
 
 location:
   backend:
-    replicaCount: 0
+    replicaCount: 1
     image:
       tag: latest
 
 media:
   backend:
-    replicaCount: 0
+    replicaCount: 1
     image:
       tag: latest
 
 order:
   backend:
-    replicaCount: 0
+    replicaCount: 1
     image:
       tag: latest
 
 payment:
   backend:
-    replicaCount: 0
+    replicaCount: 1
     image:
       tag: latest
 
 payment-paypal:
   backend:
-    replicaCount: 0
+    replicaCount: 1
     image:
       tag: latest
 
 product:
   backend:
-    replicaCount: 0
+    replicaCount: 1
     image:
       tag: latest
 
 promotion:
   backend:
-    replicaCount: 0
+    replicaCount: 1
     image:
       tag: latest
 
 rating:
   backend:
-    replicaCount: 0
+    replicaCount: 1
     image:
       tag: latest
 
 recommendation:
   backend:
-    replicaCount: 0
+    replicaCount: 1
     image:
       tag: latest
 
 search:
   backend:
-    replicaCount: 0
+    replicaCount: 1
     image:
       tag: latest
 
 tax:
   backend:
-    replicaCount: 0
+    replicaCount: 1
     image:
       tag: latest
 
 webhook:
   backend:
-    replicaCount: 0
+    replicaCount: 1
     image:
       tag: latest
 
 sampledata:
   backend:
-    replicaCount: 0
+    replicaCount: 1
     image:
       tag: latest
 
 backoffice-bff:
   backend:
-    replicaCount: 0
+    replicaCount: 1
     image:
       tag: latest
     ingress:
@@ -107,7 +107,7 @@ backoffice-bff:
 
 storefront-bff:
   backend:
-    replicaCount: 0
+    replicaCount: 1
     image:
       tag: latest
     ingress:
@@ -115,13 +115,13 @@ storefront-bff:
 
 backoffice-ui:
   ui:
-    replicaCount: 0
+    replicaCount: 1
     image:
       tag: latest
 
 storefront-ui:
   ui:
-    replicaCount: 0
+    replicaCount: 1
     image:
       tag: latest
     extraEnvs:
