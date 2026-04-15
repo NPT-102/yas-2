@@ -144,22 +144,15 @@ yq (https://github.com/mikefarah/yq/) version v4.x.x
 
 ## Bước 5: Chạy setup-cluster.sh (Infrastructure)
 
-Script này cài tất cả infrastructure: PostgreSQL, Kafka, Elasticsearch operator, Loki, Tempo,
-Prometheus, Grafana, OpenTelemetry, Promtail, cert-manager.
+Script này cài tất cả infrastructure: PostgreSQL, Kafka, Elasticsearch operator.
+(Lưu ý: Toàn bộ stack Observability gồm Loki, Prometheus, Grafana, Tempo, OpenTelemetry đã được lược bỏ khỏi đồ án để tiết kiệm RAM).
 
 ```bash
 cd /home/npt102/gcp/Devops2/yas/k8s/deploy
 ./setup-cluster.sh
 ```
 
-> ⏱ **Mất ~10-15 phút.** Script sẽ in rất nhiều output.
-
-**⚠️ QUAN TRỌNG: Script sẽ FAIL ở 2 chỗ.** Đây là bình thường:
-
-1. **Loki fail** — lỗi `You must provide a schema_config` → Fix ở Bước 6
-2. **Prometheus fail** — lỗi `assertNoLeakedSecrets` → Fix ở Bước 7
-
-Script vẫn tiếp tục chạy các bước còn lại sau mỗi lỗi (không bị dừng hoàn toàn).
+> ⏱ **Mất ~5-10 phút.** Script sẽ in rất nhiều output. Toàn bộ các tuỳ chỉnh giới hạn RAM cho Istio Sidecar cũng được chạy kèm bên trong script này tự động.
 
 **Sau khi script chạy xong, kiểm tra namespaces đã được tạo:**
 
@@ -170,7 +163,7 @@ kubectl get ns
 **✅ Kết quả đúng** (phải thấy TẤT CẢ các namespace sau):
 ```
 NAME              STATUS   AGE
-cert-manager      Active   5m
+cert-manager      Active   5m <- Không xài Observability nên xóa rồi
 default           Active   20m
 elasticsearch     Active   8m
 ingress-nginx     Active   15m
@@ -178,7 +171,6 @@ kafka             Active   10m
 kube-node-lease   Active   20m
 kube-public       Active   20m
 kube-system       Active   20m
-observability     Active   7m
 postgres          Active   12m
 zookeeper         Active   3m
 ```
@@ -190,7 +182,9 @@ zookeeper         Active   3m
 
 ---
 
-## Bước 6: Fix Loki (lỗi schema_config + permission denied)
+## Bước 6: [LƯU Ý - KIẾN THỨC] Fix Loki (lỗi schema_config + permission denied)
+
+> 💡 **Lưu ý quan trọng:** Bước 6 này hiện tại **KHÔNG CẦN CHẠY NỮA**. Cụm Observability đã bị loại bỏ hoàn toàn trong code mới. Tài liệu dưới đây chỉ được giữ lại để lưu trữ lại lịch sử config lỗi của phiên bản trước để phục vụ việc bảo vệ đồ án!
 
 Chart Loki phiên bản mới bắt buộc `schema_config`, và trên Minikube hostPath provisioner
 tạo PVC với quyền root nhưng Loki chạy với user 10001 → **permission denied**.
@@ -259,7 +253,9 @@ loki-write-0                    1/1     Running   0          2m
 
 ---
 
-## Bước 7: Fix Prometheus (lỗi assertNoLeakedSecrets)
+## Bước 7: [LƯU Ý - KIẾN THỨC] Fix Prometheus (lỗi assertNoLeakedSecrets)
+
+> 💡 **Lưu ý quan trọng:** Bước 7 này hiện tại **KHÔNG CẦN CHẠY NỮA**. Prometheus đã bị gỡ bỏ để tiết kiệm RAM. Thông tin dưới đây chỉ để lưu lại cách fix sự cố trước đó!
 
 Chart Grafana mới kiểm tra password trong values file → fail. Tắt validation:
 
@@ -308,10 +304,6 @@ echo ""
 echo "=== kafka ===" && kubectl get pods -n kafka
 echo ""
 echo "=== elasticsearch ===" && kubectl get pods -n elasticsearch
-echo ""
-echo "=== observability ===" && kubectl get pods -n observability --no-headers | awk '{print $1, $3}' | column -t
-echo ""
-echo "=== cert-manager ===" && kubectl get pods -n cert-manager
 ```
 
 **✅ Kết quả đúng cho postgres:**
@@ -345,15 +337,7 @@ elastic-operator-0                    1/1     Running   0          8m
 
 > ES operator chỉ là management layer. ES thực sự sẽ deploy ở Bước 10.
 
-**✅ Kết quả đúng cho cert-manager:**
-```
-NAME                                      READY   STATUS    RESTARTS   AGE
-cert-manager-xxxxx                        1/1     Running   0          8m
-cert-manager-cainjector-xxxxx             1/1     Running   0          8m
-cert-manager-webhook-xxxxx                1/1     Running   0          8m
-```
 
----
 
 ## Bước 9: Fix Kafka broker (nếu cần)
 
@@ -529,9 +513,10 @@ kill %1 2>/dev/null
 > Trường hợp pod `yas-realm-kc-xxxxx` không tồn tại hoặc lỗi:
 
 ```bash
-# Copy file realm vào pod
-kubectl cp /home/npt102/gcp/Devops2/yas/identity/realm-export.json \
-  keycloak/keycloak-0:/tmp/realm-export.json
+# (kubectl cp /home/npt102/gcp/Devops2/yas/identity/realm-export.json \
+#   keycloak/keycloak-0:/tmp/realm-export.json)
+# Copy file realm vào pod (Dùng cat input thay vì cp do container Keycloak không có lệnh tar)
+cat /home/npt102/gcp/Devops2/yas/identity/realm-export.json | kubectl exec -i -n keycloak keycloak-0 -- sh -c "cat > /tmp/realm-export.json"
 
 # Login admin (service port 80 bên trong cluster)
 kubectl exec -n keycloak keycloak-0 -- /opt/keycloak/bin/kcadm.sh config credentials \
@@ -581,9 +566,9 @@ redis-replicas-0   1/1     Running   0          1m
 > không cùng quyền. Fix: giảm replica count xuống 1 (đủ cho dev):
 >
 > ```bash
-> kubectl scale statefulset redis-replicas -n redis --replicas=1
-> kubectl delete pvc redis-data-redis-replicas-1 -n redis --wait=false 2>/dev/null
-> kubectl delete pvc redis-data-redis-replicas-2 -n redis --wait=false 2>/dev/null
+ kubectl scale statefulset redis-replicas -n redis --replicas=1
+ kubectl delete pvc redis-data-redis-replicas-1 -n redis --wait=false 2>/dev/null
+ kubectl delete pvc redis-data-redis-replicas-2 -n redis --wait=false 2>/dev/null
 > ```
 >
 > **Kết quả sau fix:** 2 pods Running (master-0 + replicas-0).
@@ -765,7 +750,7 @@ grep yas /etc/hosts
 **✅ Kết quả đúng:**
 ```
 192.168.49.2 yas.local.com api.yas.local.com backoffice.yas.local.com storefront.yas.local.com
-192.168.49.2 identity.yas.local.com pgadmin.yas.local.com grafana.yas.local.com
+192.168.49.2 identity.yas.local.com pgadmin.yas.local.com
 192.168.49.2 kibana.yas.local.com akhq.yas.local.com
 192.168.49.2 dev.yas.local.com api.dev.yas.local.com backoffice.dev.yas.local.com
 ...
@@ -787,17 +772,11 @@ kubectl get ns --no-headers | awk '{print $1}' | sort
 echo ""
 
 echo "========== INFRASTRUCTURE =========="
-for ns in postgres kafka elasticsearch keycloak redis cert-manager ingress-nginx; do
+for ns in postgres kafka elasticsearch keycloak redis ingress-nginx; do
   running=$(kubectl get pods -n $ns --no-headers 2>/dev/null | grep -c Running || echo 0)
   total=$(kubectl get pods -n $ns --no-headers 2>/dev/null | wc -l || echo 0)
   printf "  %-20s %s/%s Running\n" "$ns" "$running" "$total"
 done
-echo ""
-
-echo "========== OBSERVABILITY =========="
-running=$(kubectl get pods -n observability --no-headers | grep -c Running)
-total=$(kubectl get pods -n observability --no-headers | wc -l)
-echo "  observability: $running/$total Running"
 echo ""
 
 echo "========== YAS =========="
@@ -827,11 +806,7 @@ minikube-m02   Ready    <none>          ...
   elasticsearch        2/2 Running
   keycloak             2/2 Running
   redis                1/4 Running        (hoặc 4/4 tùy chart)
-  cert-manager         3/3 Running
   ingress-nginx        1/3 Running        (2 Completed admission jobs)
-
-========== OBSERVABILITY ==========
-  observability: ~18/20 Running
 
 ========== YAS ==========
   yas: 20/21 Running                      (payment-paypal crash — bình thường)
@@ -845,7 +820,6 @@ minikube-m02   Ready    <none>          ...
 | http://backoffice.yas.local.com | Trang admin backoffice | — |
 | http://identity.yas.local.com | Keycloak login page | admin / admin |
 | http://pgadmin.yas.local.com | pgAdmin database manager | Xem config |
-| http://grafana.yas.local.com | Grafana dashboards | admin / admin |
 | http://akhq.yas.local.com | AKHQ Kafka manager | — |
 | http://api.yas.local.com/swagger-ui | Swagger API docs | — |
 

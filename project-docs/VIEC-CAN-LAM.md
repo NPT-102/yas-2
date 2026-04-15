@@ -162,7 +162,7 @@ kubectl exec -n yas deploy/order -c order -- wget -S -T 5 -O /dev/null http://ta
 # Expected: 403 Forbidden (Istio RBAC: access denied)
 ```
 
-**Chụp screenshot:** 1 lệnh trả 401 (ALLOW — request đến được service), 1 lệnh trả 403 (DENY — Istio chặn).
+**Chụp screenshot:** 1 lệnh trả 401/200 (ALLOW — request đến được service), 1 lệnh trả 403 (DENY — Istio chặn).
 
 ### B3. Test Retry Policy
 
