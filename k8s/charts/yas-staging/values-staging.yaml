@@ -1,0 +1,3 @@
+# Override values cho môi trường STAGING
+# File này được ArgoCD staging-app.yaml tham chiếu
+# Thêm các cấu hình riêng cho staging ở đây (nếu cần)

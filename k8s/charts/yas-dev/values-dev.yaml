@@ -1,0 +1,3 @@
+# Override values cho môi trường DEV
+# File này được ArgoCD dev-app.yaml tham chiếu
+# Thêm các cấu hình riêng cho dev ở đây (nếu cần)
