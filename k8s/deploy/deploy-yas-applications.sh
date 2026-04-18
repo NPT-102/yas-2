@@ -8,6 +8,13 @@ helm repo update
 read -rd '' DOMAIN \
 < <(yq -r '.domain' ./cluster-config.yaml)
 
+echo "Waiting for Keycloak realm 'Yas' to be ready..."
+until curl -s http://identity.$DOMAIN/realms/Yas/.well-known/openid-configuration | grep -q "issuer"; do
+  echo "Keycloak not ready yet... sleeping 10s"
+  sleep 10
+done
+echo "Keycloak is ready!"
+
 helm dependency build ../charts/backoffice-bff
 helm upgrade --install backoffice-bff ../charts/backoffice-bff \
 --namespace yas --create-namespace \

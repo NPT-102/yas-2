@@ -1,0 +1,84 @@
+# Minimal override values for YAS dev: keep only essential services
+# Services not listed will use defaults from values.yaml
+
+# Keep (replicaCount = 1)
+cart:
+  backend:
+    replicaCount: 1
+
+customer:
+  backend:
+    replicaCount: 1
+
+inventory:
+  backend:
+    replicaCount: 1
+
+media:
+  backend:
+    replicaCount: 1
+
+order:
+  backend:
+    replicaCount: 1
+
+product:
+  backend:
+    replicaCount: 1
+
+search:
+  backend:
+    replicaCount: 1
+
+tax:
+  backend:
+    replicaCount: 1
+
+backoffice-bff:
+  backend:
+    replicaCount: 1
+
+storefront-bff:
+  backend:
+    replicaCount: 1
+
+backoffice-ui:
+  ui:
+    replicaCount: 1
+
+storefront-ui:
+  ui:
+    replicaCount: 1
+
+# Disable (replicaCount = 0)
+payment:
+  backend:
+    replicaCount: 0
+
+payment-paypal:
+  backend:
+    replicaCount: 0
+
+promotion:
+  backend:
+    replicaCount: 0
+
+rating:
+  backend:
+    replicaCount: 0
+
+recommendation:
+  backend:
+    replicaCount: 0
+
+webhook:
+  backend:
+    replicaCount: 0
+
+sampledata:
+  backend:
+    replicaCount: 0
+
+location:
+  backend:
+    replicaCount: 0

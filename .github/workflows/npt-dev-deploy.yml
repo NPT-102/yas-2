@@ -47,10 +47,18 @@ jobs:
             argocd app sync "$app" --async || true
           done
 
-      - name: Wait for ArgoCD Sync
+      - name: Wait for ArgoCD Sync and Verify Deployment
         run: |
           echo "Waiting for ArgoCD to sync dev apps..."
           sleep 30
+          
+          echo "Verifying deployments..."
+          DEPLOYS=$(kubectl get deploy -n dev -o name)
+          for deploy in $DEPLOYS; do
+            echo "Checking rollout status for $deploy..."
+            kubectl rollout status $deploy -n dev --timeout=120s
+          done
+          
           kubectl get pods -n dev --no-headers 2>/dev/null | head -30
 
       - name: Summary
