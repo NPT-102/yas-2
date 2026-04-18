@@ -5,103 +5,103 @@ cart:
   backend:
     replicaCount: 0
     image:
-      tag: v1.0.0
+      tag: latest
 
 customer:
   backend:
     replicaCount: 0
     image:
-      tag: v1.0.0
+      tag: latest
 
 inventory:
   backend:
     replicaCount: 0
     image:
-      tag: v1.0.0
+      tag: latest
 
 location:
   backend:
     replicaCount: 0
     image:
-      tag: v1.0.0
+      tag: latest
 
 media:
   backend:
     replicaCount: 0
     image:
-      tag: v1.0.0
+      tag: latest
 
 order:
   backend:
     replicaCount: 0
     image:
-      tag: v1.0.0
+      tag: latest
 
 payment:
   backend:
     replicaCount: 0
     image:
-      tag: v1.0.0
+      tag: latest
 
 payment-paypal:
   backend:
     replicaCount: 0
     image:
-      tag: v1.0.0
+      tag: latest
 
 product:
   backend:
     replicaCount: 0
     image:
-      tag: v1.0.0
+      tag: latest
 
 promotion:
   backend:
     replicaCount: 0
     image:
-      tag: v1.0.0
+      tag: latest
 
 rating:
   backend:
     replicaCount: 0
     image:
-      tag: v1.0.0
+      tag: latest
 
 recommendation:
   backend:
     replicaCount: 0
     image:
-      tag: v1.0.0
+      tag: latest
 
 search:
   backend:
     replicaCount: 0
     image:
-      tag: v1.0.0
+      tag: latest
 
 tax:
   backend:
     replicaCount: 0
     image:
-      tag: v1.0.0
+      tag: latest
 
 webhook:
   backend:
     replicaCount: 0
     image:
-      tag: v1.0.0
+      tag: latest
 
 sampledata:
   backend:
     replicaCount: 0
     image:
-      tag: v1.0.0
+      tag: latest
 
 backoffice-bff:
   backend:
     replicaCount: 0
     image:
-      tag: v1.0.0
+      tag: latest
     ingress:
       host: backoffice.staging.yas.local.com
 
@@ -109,7 +109,7 @@ storefront-bff:
   backend:
     replicaCount: 0
     image:
-      tag: v1.0.0
+      tag: latest
     ingress:
       host: staging.yas.local.com
 
@@ -117,13 +117,13 @@ backoffice-ui:
   ui:
     replicaCount: 0
     image:
-      tag: v1.0.0
+      tag: latest
 
 storefront-ui:
   ui:
     replicaCount: 0
     image:
-      tag: v1.0.0
+      tag: latest
     extraEnvs:
       - name: API_BASE_PATH
         value: http://staging.yas.local.com/api
