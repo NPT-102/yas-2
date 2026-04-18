@@ -34,8 +34,6 @@ YAS is a pet project aim to practice building a typical microservice application
 - K8s
 - GitHub Actions
 - SonarCloud
-- OpenTelemetry
-- Grafana, Loki, Prometheus, Tempo
 
 ## Local development architecture
 
@@ -51,9 +49,6 @@ YAS is a pet project aim to practice building a typical microservice application
 127.0.0.1 pgadmin.yas.local
 127.0.0.1 storefront
 127.0.0.1 backoffice
-127.0.0.1 loki
-127.0.0.1 tempo
-127.0.0.1 grafana
 127.0.0.1 elasticsearch
 127.0.0.1 kafka
 ```
@@ -70,16 +65,31 @@ YAS is a pet project aim to practice building a typical microservice application
 1. `http://pgadmin.yas.local/`. Account login: `admin@yas.com` / admin. Register a server: postgres, port 5432, username admin, password admin. The Postgresql server is also exposed to the host machine: servername: localhost, port: 5432, username: admin, password: admin
 2. `http://api.yas.local/swagger-ui/` for all the REST API document of all the services
 3. `http://identity/` for Keycloak console, account admin/admin
-4. `http://grafana/` for observability: log, trace, matrix
-5. `http://elasticsearch/` for calling Elasticsearch APIs
+4. `http://elasticsearch/` for calling Elasticsearch APIs
 
 #### About docker-compose files
 1. docker-compose.yml for all core services
 2. docker-compose.search.yml for search service
-3. docker-compose.o11y.yml for observability services
 
 ## Deploy to Kubernetes
-https://github.com/nashtech-garage/yas/tree/main/k8s/deploy
+
+All deployment scripts are located in `k8s/deploy`. To automatically set up the complete cluster (including required Istio sidecars, Kafka configurations, and inotify limits for Minikube), simply run:
+```bash
+cd k8s/deploy
+./setup-cluster.sh
+./deploy-yas-applications.sh
+```
+
+### Continuous Delivery & Operation Strategy
+The system features hardened CI/CD workflows and automated fail-safes designed for production-like demos:
+- **Deployment Verification:** CI pipelines actively verify `kubectl rollout status`, preventing silent demo failures.
+- **Docker Layer Caching:** Ensures lightning-fast builds across the 21+ services. 
+- **Automated Readiness:** Applications like BFFs inherently wait for core identity dependencies (Keycloak `issuer` configs) to come online to prevent CrashLoopBackOffs.
+- **ArgoCD Fast Rollback:** If an anomaly appears during staging demo:
+  ```bash
+  # Rapidly rollback to a known stable revision!
+  argocd app rollback <app-name> <revision>
+  ```
 
 ## Documentation
 - [Architecture and components](https://github.com/nashtech-garage/yas/tree/main/docs)
@@ -101,7 +111,6 @@ By contributing, you agree that your contributions will be licensed under MIT Li
     <thead>
         <tr>
             <th>Backoffice &amp; Storefront</th>
-            <th>Observability</th>
         </tr>
     </thead>
     <tbody>
@@ -110,10 +119,6 @@ By contributing, you agree that your contributions will be licensed under MIT Li
                 <img src="screenshots/yas-backoffice.png" alt="Yas Backoffice"/>
                 <img src="screenshots/yas-storefront.png" alt="Yas Storefront"/>
                 <img src="screenshots/yas-swagger.png" alt="Yas Swagger"/>
-            </td>
-            <td>
-                <img src="screenshots/yas-grafana-tracing.png" alt="Yas Grafana Tracing"/>
-                <img src="screenshots/yas-grafana-metrics.png" alt="Yas Grafana Metrics"/>
             </td>
         </tr>
     </tbody>

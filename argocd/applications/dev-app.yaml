@@ -17,6 +17,8 @@ spec:
     helm:
       valueFiles:
         - values.yaml
+        - values-dev.yaml
+        - values-minimal.yaml
   destination:
     server: https://kubernetes.default.svc
     namespace: dev
