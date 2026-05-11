@@ -84,7 +84,7 @@ yq (https://github.com/mikefarah/yq/) version v4.x.x
 > **Bỏ qua nếu đã có cluster đang chạy** (kiểm tra: `minikube status`).
 
 ```bash
-minikube start --nodes=2 --driver=docker --cpus=4 --memory=8192
+minikube start --nodes=2 --driver=docker --cpus=8 --memory=12288
 ```
 
 **Chờ ~1-2 phút.** Kiểm tra:

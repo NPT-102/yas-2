@@ -1,4 +1,4 @@
-apiVersion: kafka.strimzi.io/v1beta2
+apiVersion: kafka.strimzi.io/v1
 kind: KafkaConnect
 metadata:
   name: debezium-connect-cluster
@@ -8,6 +8,10 @@ spec:
   replicas: 1
   bootstrapServers: kafka-cluster-kafka-bootstrap:9092
   image: {{ .Values.debeziumConnect.image }}
+  groupId: connect-cluster
+  offsetStorageTopic: kafka_connect_offsets
+  configStorageTopic: kafka_connect_configs
+  statusStorageTopic: kafka_connect_status
   config:
     config.providers: secrets
     config.providers.secrets.class: io.strimzi.kafka.KubernetesSecretConfigProvider
