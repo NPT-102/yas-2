@@ -88,7 +88,6 @@ jobs:
 
       - name: Deploy infrastructure
         run: |
-          kubectl apply -f ./k8s/mini-infra.yaml --namespace ${{ env.NAMESPACE }}
           helm dependency build ./k8s/charts/yas-configuration
           helm upgrade --install yas-infra ./k8s/charts/yas-configuration \
             --namespace ${{ env.NAMESPACE }} \
@@ -131,9 +130,9 @@ jobs:
             helm dependency build ./k8s/charts/$name
             helm upgrade --install "$name" "./k8s/charts/$name" \
               --namespace ${{ env.NAMESPACE }} \
-              --set image.repository=$REGISTRY/yas-k3s-$name \
-              --set image.tag="$tag" \
-              --set service.type=NodePort \
+              --set backend.image.repository=$REGISTRY/yas-k3s-$name \
+              --set backend.image.tag="$tag" \
+              --set backend.service.type=NodePort \
               --set backend.serviceMonitor.enabled=false \
               --set backend.databaseConnectionUrl=jdbc:postgresql://postgresql.postgres:5432 \
               --set backend.livenessProbe.initialDelaySeconds=120 \
@@ -186,3 +185,24 @@ jobs:
                      search storefront-bff tax webhook; do
             verify_rollout "$svc"
           done
+
+      - name: Print service NodePort endpoints
+        run: |
+          WORKER_IP=$(kubectl get nodes -l '!node-role.kubernetes.io/control-plane' \
+            -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null || \
+            kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
+          echo "================================================"
+          echo " Developer namespace: ${{ env.NAMESPACE }}"
+          echo " Worker node IP:      $WORKER_IP"
+          echo " Add the following to your /etc/hosts file:"
+          echo "   $WORKER_IP  <service>.${{ env.NAMESPACE }}.local"
+          echo "================================================"
+          echo "Service NodePort endpoints:"
+          for svc in product cart customer backoffice-bff inventory location media order \
+                     payment payment-paypal promotion rating recommendation sampledata \
+                     search storefront-bff tax webhook; do
+            PORT=$(kubectl get svc "$svc" -n ${{ env.NAMESPACE }} \
+              -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo 'N/A')
+            echo "  $svc  ->  $WORKER_IP:$PORT"
+          done
+          echo "================================================"
