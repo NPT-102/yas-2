@@ -88,7 +88,8 @@ jobs:
 
       - name: Deploy infrastructure
         run: |
-          helm dependency build ./k8s/charts/yas-configuration
+          helm repo update
+          helm dependency build --skip-refresh ./k8s/charts/yas-configuration
           helm upgrade --install yas-infra ./k8s/charts/yas-configuration \
             --namespace ${{ env.NAMESPACE }} \
             --set global.namespace=${{ env.NAMESPACE }} \
@@ -103,6 +104,20 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Pre-build chart dependencies
+        run: |
+          # Service charts use local file:// backend dep - no repo update needed
+          # Build all 18 in parallel to save ~3 min
+          PIDS=()
+          for svc in product cart customer backoffice-bff inventory location media order \
+                     payment payment-paypal promotion rating recommendation sampledata \
+                     search storefront-bff tax webhook; do
+            helm dependency build --skip-refresh ./k8s/charts/$svc &
+            PIDS+=($!)
+          done
+          for pid in "${PIDS[@]}"; do wait "$pid"; done
+          echo "All chart dependencies built."
 
       - name: Resolve image tags and deploy all services
         env:
@@ -127,8 +142,6 @@ jobs:
             local name="$1"
             local tag="$2"
             echo "Deploying $name with tag $tag..."
-            # Skip dep build if backend chart already packaged
-            ls ./k8s/charts/$name/charts/*.tgz &>/dev/null || helm dependency build ./k8s/charts/$name
             helm upgrade --install "$name" "./k8s/charts/$name" \
               --namespace ${{ env.NAMESPACE }} \
               --set backend.image.repository=$REGISTRY/yas-k3s-$name \
@@ -143,8 +156,8 @@ jobs:
               --set backend.readinessProbe.initialDelaySeconds=60 \
               --set backend.readinessProbe.failureThreshold=40 \
               --set backend.readinessProbe.httpGet.path=/actuator/health/readiness \
-              --set backend.readinessProbe.httpGet.port=metric \
-              --wait --timeout=10m
+              --set backend.readinessProbe.httpGet.port=metric
+            # No --wait: all 18 services deploy fast, then we wait in parallel below
           }
 
           deploy_service "product"        "$(get_tag '${{ github.event.inputs.product_branch }}')"
@@ -166,26 +179,27 @@ jobs:
           deploy_service "tax"            "$(get_tag '${{ github.event.inputs.tax_branch }}')"
           deploy_service "webhook"        "$(get_tag '${{ github.event.inputs.webhook_branch }}')"
 
-      - name: Verify deployments
+      - name: Wait for all deployments (parallel)
         run: |
-          set -e
-          verify_rollout() {
-            local name="$1"
-            echo "Verifying rollout for deployment/$name in namespace ${{ env.NAMESPACE }}"
-            kubectl rollout status "deployment/$name" -n ${{ env.NAMESPACE }} --timeout=3m || {
-              echo "::error::Rollout failed for deployment/$name in namespace ${{ env.NAMESPACE }}."
-              kubectl get pods -n ${{ env.NAMESPACE }} -o wide
-              kubectl describe "deployment/$name" -n ${{ env.NAMESPACE }}
-              kubectl get events -n ${{ env.NAMESPACE }} --sort-by=.lastTimestamp | tail -30
-              exit 1
-            }
-          }
-
-          for svc in product cart customer backoffice-bff inventory location media order \
-                     payment payment-paypal promotion rating recommendation sampledata \
-                     search storefront-bff tax webhook; do
-            verify_rollout "$svc"
+          # All 18 rollout checks run in parallel - total wait = slowest single service
+          PIDS=()
+          SVCS=(product cart customer backoffice-bff inventory location media order
+                payment payment-paypal promotion rating recommendation sampledata
+                search storefront-bff tax webhook)
+          for svc in "${SVCS[@]}"; do
+            kubectl rollout status "deployment/$svc" -n ${{ env.NAMESPACE }} --timeout=10m &
+            PIDS+=($!)
           done
+          FAILED=0
+          for i in "${!PIDS[@]}"; do
+            if ! wait "${PIDS[$i]}"; then
+              echo "::error::Rollout failed for deployment/${SVCS[$i]} in ${{ env.NAMESPACE }}"
+              kubectl get pods -n ${{ env.NAMESPACE }} -l "app.kubernetes.io/name=${SVCS[$i]}" -o wide
+              kubectl get events -n ${{ env.NAMESPACE }} --sort-by=.lastTimestamp | tail -20
+              FAILED=1
+            fi
+          done
+          [ $FAILED -eq 0 ] || exit 1
 
       - name: Print service NodePort endpoints
         run: |
