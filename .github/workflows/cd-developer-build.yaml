@@ -127,7 +127,8 @@ jobs:
             local name="$1"
             local tag="$2"
             echo "Deploying $name with tag $tag..."
-            helm dependency build ./k8s/charts/$name
+            # Skip dep build if backend chart already packaged
+            ls ./k8s/charts/$name/charts/*.tgz &>/dev/null || helm dependency build ./k8s/charts/$name
             helm upgrade --install "$name" "./k8s/charts/$name" \
               --namespace ${{ env.NAMESPACE }} \
               --set backend.image.repository=$REGISTRY/yas-k3s-$name \
@@ -135,15 +136,15 @@ jobs:
               --set backend.service.type=NodePort \
               --set backend.serviceMonitor.enabled=false \
               --set backend.databaseConnectionUrl=jdbc:postgresql://postgresql.postgres:5432 \
-              --set backend.livenessProbe.initialDelaySeconds=120 \
-              --set backend.livenessProbe.failureThreshold=30 \
+              --set backend.livenessProbe.initialDelaySeconds=60 \
+              --set backend.livenessProbe.failureThreshold=40 \
               --set backend.livenessProbe.httpGet.path=/actuator/health/liveness \
               --set backend.livenessProbe.httpGet.port=metric \
-              --set backend.readinessProbe.initialDelaySeconds=120 \
-              --set backend.readinessProbe.failureThreshold=30 \
+              --set backend.readinessProbe.initialDelaySeconds=60 \
+              --set backend.readinessProbe.failureThreshold=40 \
               --set backend.readinessProbe.httpGet.path=/actuator/health/readiness \
               --set backend.readinessProbe.httpGet.port=metric \
-              --wait --timeout=5m
+              --wait --timeout=10m
           }
 
           deploy_service "product"        "$(get_tag '${{ github.event.inputs.product_branch }}')"
