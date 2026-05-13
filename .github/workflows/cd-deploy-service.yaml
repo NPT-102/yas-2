@@ -14,7 +14,7 @@ on:
         required: true
         type: string
     secrets:
-      DOCKERHUB_USERNAME:
+      DOCKER_USER:
         required: true
       KUBECONFIG_BASE64:
         required: true
@@ -40,7 +40,7 @@ jobs:
       - name: Deploy service
         run: |
           helm dependency build ./k8s/charts/${{ inputs.service_name }}
-          helm upgrade --install ${{ inputs.service_name }} ./k8s/charts/${{ inputs.service_name }} --namespace ${{ inputs.namespace }} --create-namespace --set image.repository=${{ secrets.DOCKERHUB_USERNAME }}/yas-k3s-${{ inputs.service_name }} --set image.tag=${{ inputs.image_tag }} --set service.type=NodePort --set backend.serviceMonitor.enabled=false --set backend.databaseConnectionUrl=jdbc:postgresql://postgresql.postgres:5432 --set backend.livenessProbe.initialDelaySeconds=120 --set backend.livenessProbe.failureThreshold=30 --set backend.livenessProbe.httpGet.path=/actuator/health/liveness --set backend.livenessProbe.httpGet.port=metric --set backend.readinessProbe.initialDelaySeconds=120 --set backend.readinessProbe.failureThreshold=30 --set backend.readinessProbe.httpGet.path=/actuator/health/readiness --set backend.readinessProbe.httpGet.port=metric --wait --timeout=120s
+          helm upgrade --install ${{ inputs.service_name }} ./k8s/charts/${{ inputs.service_name }} --namespace ${{ inputs.namespace }} --create-namespace --set image.repository=${{ secrets.DOCKER_USER }}/yas-k3s-${{ inputs.service_name }} --set image.tag=${{ inputs.image_tag }} --set service.type=NodePort --set backend.serviceMonitor.enabled=false --set backend.databaseConnectionUrl=jdbc:postgresql://postgresql.postgres:5432 --set backend.livenessProbe.initialDelaySeconds=120 --set backend.livenessProbe.failureThreshold=30 --set backend.livenessProbe.httpGet.path=/actuator/health/liveness --set backend.livenessProbe.httpGet.port=metric --set backend.readinessProbe.initialDelaySeconds=120 --set backend.readinessProbe.failureThreshold=30 --set backend.readinessProbe.httpGet.path=/actuator/health/readiness --set backend.readinessProbe.httpGet.port=metric --wait --timeout=120s
 
       - name: Verify deployment
         run: |

@@ -104,7 +104,7 @@ jobs:
 
       - name: Resolve image tags and deploy all services
         run: |
-          $REGISTRY = "${{ secrets.DOCKERHUB_USERNAME }}"
+          $REGISTRY = "${{ secrets.DOCKER_USER }}"
 
           function Get-Tag($branch) {
               if ($branch -eq "main") { return "latest" }
