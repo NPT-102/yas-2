@@ -1,0 +1,499 @@
+% ============================================================
+%  SECTION 2: CẤU HÌNH
+% ============================================================
+\chapter{Cấu hình}
+
+\section{Chuẩn bị môi trường}
+
+\subsection{Lý do chọn K3s thay Minikube}
+
+Ban đầu đồ án được thực hiện trên Minikube. Sau quá trình triển khai, nhóm quyết định
+chuyển sang \textbf{K3s v1.32.5} vì các lợi thế vượt trội:
+
+\begin{table}[H]
+  \centering
+  \caption{So sánh Minikube và K3s}
+  \begin{tabularx}{\textwidth}{L{4cm}L{4.5cm}L{4.5cm}}
+    \toprule
+    \textbf{Tiêu chí} & \textbf{Minikube} & \textbf{K3s} \\
+    \midrule
+    Cơ chế chạy & Docker container (Docker-in-Docker) & Systemd service (native process) \\
+    RAM overhead & $\sim$2--3 GB & $\sim$512 MB \\
+    Port 80/443 & Cần \texttt{minikube tunnel} & Tự động (klipper-lb) \\
+    Auto-start sau reboot & Không & Có (\texttt{systemctl enable k3s}) \\
+    inotify (Promtail, Kafka) & Phải set lại sau restart & Persist trong \texttt{/etc/sysctl.d/} \\
+    Worker node & Docker container giả lập & Máy thật (VM/máy khác) \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\subsection{Cài đặt K3s}
+
+\begin{lstlisting}[style=bashstyle, caption=Cài K3s v1.32.5 (disable Traefik)]
+# Cai K3s v1.32.5 stable LTS, tat Traefik (dung ingress-nginx thay the)
+curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION=v1.32.5+k3s1 sh -s - \
+  --disable=traefik \
+  --write-kubeconfig-mode=644
+
+# Cau hinh kubeconfig
+mkdir -p ~/.kube
+sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config
+sudo chown $USER:$USER ~/.kube/config
+
+# Kiem tra
+kubectl get nodes
+# NAME     STATUS   ROLES                  AGE   VERSION
+# fedora   Ready    control-plane,master   1m    v1.32.5+k3s1
+\end{lstlisting}
+
+\begin{warnbox}[Lưu ý quan trọng về version]
+Không dùng K3s v1.35.x — có bug \texttt{cloud-controller-manager} exit ngay khi gặp 403 Forbidden
+lúc bootstrap RBAC (race condition), khiến K3s crash loop vĩnh viễn. Dùng v1.32.5 (LTS stable).
+\end{warnbox}
+
+\subsection{Cài Ingress NGINX và cấu hình inotify}
+
+\begin{lstlisting}[style=bashstyle, caption=Cài ingress-nginx và tăng giới hạn inotify]
+# Cai ingress-nginx
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/\
+controller-v1.11.0/deploy/static/provider/cloud/deploy.yaml
+
+# Tang gioi han inotify (can cho Kafka, Promtail)
+sudo sysctl -w fs.inotify.max_user_watches=524288
+sudo sysctl -w fs.inotify.max_user_instances=512
+
+# Persist qua reboot (chi can set 1 lan voi K3s)
+echo "fs.inotify.max_user_watches=524288" | sudo tee -a /etc/sysctl.d/99-k3s.conf
+echo "fs.inotify.max_user_instances=512"  | sudo tee -a /etc/sysctl.d/99-k3s.conf
+sudo sysctl --system
+\end{lstlisting}
+
+\subsection{Thêm Worker Node vào Cluster}
+
+\begin{lstlisting}[style=bashstyle, caption=Join worker node vào K3s cluster]
+# Tren control plane: lay token
+sudo cat /var/lib/rancher/k3s/server/node-token
+
+# Mo firewall tren control plane
+sudo firewall-cmd --permanent --add-port=6443/tcp
+sudo firewall-cmd --permanent --add-port=8472/udp
+sudo firewall-cmd --reload
+
+# Tren worker: cai K3s agent
+curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION=v1.32.5+k3s1 \
+  K3S_URL="https://${CONTROL_PLANE_IP}:6443" \
+  K3S_TOKEN="${TOKEN}" sh -
+
+# Kiem tra tren control plane
+kubectl get nodes
+# NAME        STATUS   ROLES                  AGE
+# fedora      Ready    control-plane,master   2d
+# worker-01   Ready    <none>                 5m
+# worker-02   Ready    <none>                 3m
+\end{lstlisting}
+
+% ============================================================
+\section{Flow Setup — CI/CD Pipeline}
+
+\subsection{Cấu hình GitHub Secrets}
+
+Ba secrets bắt buộc cần cấu hình trong GitHub repository:
+
+\begin{table}[H]
+  \centering
+  \caption{GitHub Secrets}
+  \begin{tabularx}{\textwidth}{L{3.5cm}X}
+    \toprule
+    \textbf{Secret} & \textbf{Mô tả} \\
+    \midrule
+    \texttt{DOCKER\_USER} & Username Docker Hub — dùng để đặt tên image và login \\
+    \texttt{DOCKER\_PASS} & Access Token Docker Hub — dùng để push image \\
+    \texttt{KUBE\_CONFIG} & Kubeconfig base64 — dùng để kubectl deploy lên K3s \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\begin{lstlisting}[style=bashstyle, caption=Lấy KUBE\_CONFIG cho K3s]
+# Encode kubeconfig thanh base64
+cat ~/.kube/config | base64 -w 0
+# Copy output -> GitHub Settings -> Secrets -> KUBE_CONFIG
+\end{lstlisting}
+
+\subsection{Self-hosted Runner}
+
+Vì K3s API server chạy tại \texttt{127.0.0.1:6443}, GitHub-hosted runner trên cloud
+không thể kết nối được. Nhóm cài \textbf{self-hosted runner} trực tiếp trên máy chủ:
+
+\begin{lstlisting}[style=bashstyle, caption=Cài và chạy self-hosted runner]
+mkdir -p ~/actions-runner && cd ~/actions-runner
+curl -o actions-runner-linux-x64-2.322.0.tar.gz -L \
+  https://github.com/actions/runner/releases/download/v2.322.0/\
+actions-runner-linux-x64-2.322.0.tar.gz
+tar xzf ./actions-runner-linux-x64-2.322.0.tar.gz
+./config.sh --url https://github.com/NPT-102/yas-2 --token <TOKEN>
+
+# Chay background
+nohup ./run.sh > runner.log 2>&1 &
+\end{lstlisting}
+
+\subsection{Workflow CI (Yêu cầu 3)}
+
+File: \texttt{.github/workflows/npt-ci.yml}
+
+\textbf{Luồng hoạt động:}
+\begin{enumerate}
+  \item Trigger: push lên bất kỳ branch nào (\texttt{branches: '**'})
+  \item \textbf{Job detect-changes}: So sánh \texttt{git diff} để phát hiện service nào thay đổi
+  \item \textbf{Job build-java}: Chạy \texttt{mvn clean install}, build Docker image, push lên Docker Hub
+        với tag = 7 ký tự đầu commit SHA
+  \item \textbf{Job build-frontend}: Build Next.js qua multi-stage Dockerfile, push image
+  \item Nếu push vào \texttt{main}: tag thêm \texttt{:latest}
+\end{enumerate}
+
+\begin{lstlisting}[style=yamlstyle, caption=CI workflow — detect changes và build (trích)]
+name: CI Build and Push
+on:
+  push:
+    branches: ['**']
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      java_services: ${{ steps.filter.outputs.java_services }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Detect changed services
+        id: filter
+        run: |
+          CHANGED=$(git diff --name-only HEAD~1 HEAD)
+          for svc in $JAVA_SERVICES; do
+            if echo "$CHANGED" | grep -q "^${svc}/"; then
+              JAVA+=("\"${svc}\"")
+            fi
+          done
+          echo "java_services=[$(IFS=,; echo "${JAVA[*]}")]" >> $GITHUB_OUTPUT
+
+  build-java:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.java_services != '[]'
+    strategy:
+      matrix:
+        service: ${{ fromJson(needs.detect-changes.outputs.java_services) }}
+    steps:
+      - name: Build and Push Docker Image
+        run: |
+          COMMIT_ID=${GITHUB_SHA::7}
+          IMAGE=${{ secrets.DOCKER_USER }}/${{ matrix.service }}
+          TAGS="-t ${IMAGE}:${COMMIT_ID}"
+          if [ "${{ github.ref_name }}" = "main" ]; then
+            TAGS="$TAGS -t ${IMAGE}:latest"
+          fi
+          docker buildx build --push $TAGS ./${{ matrix.service }}
+\end{lstlisting}
+
+\subsection{Workflow Developer Build (Yêu cầu 4)}
+
+File: \texttt{.github/workflows/npt-developer\_build.yml}
+
+Developer kích hoạt thủ công qua \texttt{workflow\_dispatch}, nhập:
+\begin{itemize}
+  \item \texttt{service\_name}: service muốn test (dropdown list)
+  \item \texttt{branch\_name}: tên branch đang phát triển
+\end{itemize}
+
+\textbf{Luồng hoạt động:}
+\begin{enumerate}
+  \item Lấy commit SHA cuối của branch được chọn
+  \item Checkout code của branch đó \textrightarrow{} build + push image với tag = SHA
+  \item Deploy tất cả service vào namespace \texttt{developer}:
+        \begin{itemize}
+          \item Service được chọn: dùng image mới build, expose qua NodePort
+          \item Các service còn lại: dùng image \texttt{:latest}
+        \end{itemize}
+  \item In ra GitHub Step Summary: NodePort, Worker IP, hướng dẫn \texttt{/etc/hosts}
+\end{enumerate}
+
+\begin{lstlisting}[style=yamlstyle, caption=Developer build — deploy service với custom image (trích)]
+- name: Deploy all services
+  run: |
+    for svc in $SERVICES; do
+      if [ "${svc}" = "${CUSTOM_SERVICE}" ]; then
+        # Deploy custom branch image
+        helm upgrade --install ${svc} ./${svc} \
+          --namespace developer --create-namespace \
+          --set backend.image.repository=${DOCKER_USER}/${svc} \
+          --set backend.image.tag=${CUSTOM_TAG} \
+          --set backend.service.type=NodePort \
+          --set backend.ingress.host="api.developer.yas.local.com"
+      else
+        # Deploy latest image
+        helm upgrade --install ${svc} ./${svc} \
+          --namespace developer --create-namespace \
+          --set backend.image.tag=latest
+      fi
+    done
+\end{lstlisting}
+
+\subsection{Workflow Cleanup (Yêu cầu 5)}
+
+File: \texttt{.github/workflows/npt-cleanup.yml}
+
+Developer chạy workflow, nhập \texttt{yes} để xác nhận \textrightarrow{} xóa toàn bộ namespace \texttt{developer}.
+
+\begin{lstlisting}[style=bashstyle, caption=Cleanup deployment]
+kubectl delete namespace developer --ignore-not-found=true
+\end{lstlisting}
+
+\subsection{Workflow Dev Deploy (Yêu cầu 6a)}
+
+File: \texttt{.github/workflows/npt-dev-deploy.yml}
+
+Trigger: \textbf{tự động} khi push vào \texttt{main}. Deploy tất cả service vào namespace \texttt{dev}.
+ArgoCD ApplicationSet đồng bộ Helm chart từ Git \textrightarrow{} tự động sync khi \texttt{main} thay đổi.
+
+\subsection{Workflow Staging Deploy (Yêu cầu 6b)}
+
+File: \texttt{.github/workflows/npt-staging-deploy.yml}
+
+Trigger: tạo tag \texttt{v*} trên branch \texttt{main}.
+\begin{lstlisting}[style=bashstyle, caption=Tạo staging release]
+git checkout main && git pull
+git tag v1.0.0
+git push origin v1.0.0
+# Pipeline tu dong build tat ca service voi tag v1.0.0
+# Push images: <DOCKER_USER>/<service>:v1.0.0
+# Deploy vao namespace staging
+\end{lstlisting}
+
+% ============================================================
+\section{Cấu hình ArgoCD (Nâng cao)}
+
+\subsection{Cài đặt ArgoCD}
+
+\begin{lstlisting}[style=bashstyle, caption=Cài ArgoCD với server-side apply]
+kubectl create namespace argocd
+kubectl apply -n argocd \
+  -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml \
+  --server-side  # Can thiet vi CRD ArgoCD lon hon 256KB
+
+# Truy cap UI qua port-forward
+kubectl port-forward svc/argocd-server -n argocd 9090:443 &
+# https://localhost:9090  (admin / <mat-khau-lay-tu-secret>)
+\end{lstlisting}
+
+\subsection{Cấu hình ApplicationSet}
+
+ArgoCD ApplicationSet tự động tạo Application cho từng service trong mỗi environment.
+
+\begin{lstlisting}[style=yamlstyle, caption=ArgoCD ApplicationSet cho môi trường dev]
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: yas-dev-appset
+  namespace: argocd
+spec:
+  generators:
+    - list:
+        elements:
+          - service: cart
+          - service: order
+          - service: product
+          # ... them 17 services
+  template:
+    metadata:
+      name: 'yas-dev-\{\{service\}\}'
+    spec:
+      project: yas
+      source:
+        repoURL: https://github.com/NPT-102/yas-2
+        targetRevision: main
+        path: 'k8s/charts/\{\{service\}\}'
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: dev
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+\end{lstlisting}
+
+% ============================================================
+\section{Cấu hình Istio Service Mesh (Nâng cao)}
+
+\subsection{Cài đặt Istio}
+
+\begin{lstlisting}[style=bashstyle, caption=Cài Istio với profile tối ưu]
+# Cai Istio voi resource limits toi uu (istio-overlay.yaml)
+./istio-1.24.3/bin/istioctl install -f istio/istio-overlay.yaml -y
+
+# Bat sidecar injection
+kubectl label namespace yas istio-injection=enabled
+kubectl label namespace ingress-nginx istio-injection=enabled  # QUAN TRONG!
+
+# Restart de nhan sidecar (2/2 containers)
+kubectl rollout restart deployment -n yas
+kubectl rollout restart deployment ingress-nginx-controller -n ingress-nginx
+
+# Cai addons
+kubectl apply -f https://raw.githubusercontent.com/istio/istio/release-1.24/samples/addons/prometheus.yaml
+kubectl apply -f https://raw.githubusercontent.com/istio/istio/release-1.24/samples/addons/grafana.yaml
+kubectl apply -f https://raw.githubusercontent.com/istio/istio/release-1.24/samples/addons/kiali.yaml
+\end{lstlisting}
+
+\subsection{Giải thích code cấu hình Istio}
+
+\subsubsection{PeerAuthentication — bắt buộc mTLS}
+
+\begin{lstlisting}[style=yamlstyle, caption=istio/peer-authentication.yaml]
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: default-mtls
+  namespace: yas
+spec:
+  mtls:
+    mode: STRICT  # Bat buoc mTLS cho toan bo traffic vao namespace yas
+                  # ingress-nginx co sidecar -> tu dung mTLS qua DestinationRule
+\end{lstlisting}
+
+\textbf{Giải thích:} \texttt{STRICT} mode yêu cầu mọi kết nối vào namespace \texttt{yas}
+phải dùng mTLS. Điều này có nghĩa là chỉ các client \textit{trong mesh} (có Envoy sidecar)
+mới giao tiếp được. Đây là lý do ingress-nginx cũng phải được inject sidecar.
+
+\subsubsection{DestinationRule — cấu hình TLS mode}
+
+\begin{lstlisting}[style=yamlstyle, caption=istio/destination-rule.yaml (trích — 1 trong 21 rules)]
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: mtls-cart
+  namespace: yas
+spec:
+  host: cart.yas.svc.cluster.local
+  exportTo:
+    - "."           # Namespace yas
+    - "ingress-nginx"  # Quan trong: ingress-nginx phai thay duoc rule nay
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL  # Envoy tu quan ly chung chi, khong can config thu cong
+\end{lstlisting}
+
+\textbf{Giải thích:} \texttt{exportTo: ingress-nginx} cho phép sidecar trong namespace
+\texttt{ingress-nginx} nhìn thấy DestinationRule và tự dùng mTLS. Nếu thiếu field này,
+ingress-nginx proxy qua Pod IP (PassthroughCluster) thay vì service identity \textrightarrow{} mTLS STRICT fail.
+
+\subsubsection{AuthorizationPolicy — kiểm soát service-to-service}
+
+\begin{lstlisting}[style=yamlstyle, caption=istio/authorization-policy.yaml (trích)]
+# Policy mac dinh: deny all
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: deny-all
+  namespace: yas
+spec: {}   # Khong co rules = deny tat ca
+
+---
+# Chi cho phep order truy cap tax
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-order-to-tax
+  namespace: yas
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tax   # Pod nao ap dung policy nay
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - "cluster.local/ns/yas/sa/order"  # Chi order duoc phep
+    - from:
+        - source:
+            principals:
+              - "cluster.local/ns/ingress-nginx/sa/ingress-nginx"
+\end{lstlisting}
+
+\subsubsection{VirtualService — Retry Policy}
+
+\begin{lstlisting}[style=yamlstyle, caption=istio/virtual-service-retry.yaml (trích)]
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: tax-retry
+  namespace: yas
+spec:
+  hosts:
+    - tax.yas.svc.cluster.local
+  http:
+    - retries:
+        attempts: 3          # Thu lai 3 lan neu loi
+        perTryTimeout: 10s
+        retryOn: 5xx,reset,connect-failure,retriable-4xx
+      route:
+        - destination:
+            host: tax.yas.svc.cluster.local
+\end{lstlisting}
+
+\textbf{Giải thích:} Nếu service \texttt{tax} trả lỗi 5xx, Istio tự động retry tối đa 3 lần
+mà không cần code application xử lý retry. Điều này tăng độ bền của hệ thống.
+
+\subsection{Ingress NGINX kết hợp Istio mTLS STRICT}
+
+Thách thức lớn nhất: \texttt{ingress-nginx} ban đầu nằm ngoài mesh \textrightarrow{} gửi plain HTTP
+vào namespace \texttt{yas} \textrightarrow{} sidecar từ chối (STRICT mode) \textrightarrow{} 502 Bad Gateway.
+
+\textbf{Giải pháp 3 bước:}
+\begin{enumerate}
+  \item Inject sidecar vào \texttt{ingress-nginx} (label namespace + restart pod)
+  \item Export DestinationRule sang namespace \texttt{ingress-nginx}
+  \item Thêm annotation vào Ingress để proxy theo service identity (không theo Pod IP):
+\end{enumerate}
+
+\begin{lstlisting}[style=yamlstyle, caption=Annotation Ingress để ingress-nginx dùng service identity]
+# k8s/charts/backend/templates/ingress.yaml
+annotations:
+  nginx.ingress.kubernetes.io/service-upstream: "true"
+  nginx.ingress.kubernetes.io/upstream-vhost: "{{ .Chart.Name }}.yas.svc.cluster.local"
+\end{lstlisting}
+
+Khi bật \texttt{service-upstream}, Envoy sidecar của ingress-nginx route traffic qua
+cluster name \texttt{outbound|80||cart.yas.svc.cluster.local} thay vì
+\texttt{PassthroughCluster} \textrightarrow{} DestinationRule được áp dụng \textrightarrow{} mTLS hoạt động.
+
+% ============================================================
+\section{Cấu hình Infrastructure}
+
+\subsection{Setup cluster script}
+
+Script \texttt{k8s/deploy/setup-cluster.sh} tự động cài toàn bộ infrastructure:
+
+\begin{lstlisting}[style=bashstyle, caption=Chạy setup cluster]
+cd k8s/deploy
+./setup-cluster.sh    # ~15 phut
+./setup-keycloak.sh   # ~5 phut
+./setup-redis.sh      # ~1 phut
+./deploy-yas-configuration.sh  # ConfigMaps + Secrets
+./deploy-yas-minimal.sh        # Deploy microservices
+\end{lstlisting}
+
+\subsection{Cấu hình CoreDNS cho hostname nội bộ}
+
+Pods trong cluster không đọc được \texttt{/etc/hosts} của host \textrightarrow{} cần thêm hostname
+vào CoreDNS:
+
+\begin{lstlisting}[style=bashstyle, caption=Thêm hostname vào CoreDNS]
+kubectl edit configmap coredns -n kube-system
+# Them vao block "hosts /etc/coredns/NodeHosts {"
+# 172.16.0.240 identity.yas.local.com
+# 172.16.0.240 api.yas.local.com
+
+kubectl rollout restart deployment/coredns -n kube-system
+\end{lstlisting}

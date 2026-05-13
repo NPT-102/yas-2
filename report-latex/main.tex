@@ -1,0 +1,139 @@
+% ============================================================
+%  BÁO CÁO ĐỒ ÁN 2 — XÂY DỰNG HỆ THỐNG CD
+%  DevOps Fundamentals — HKII 2025-2026
+% ============================================================
+\documentclass[12pt,a4paper]{report}
+
+% ---- Encoding & Fonts ----
+\usepackage[utf8]{inputenc}
+\usepackage[T5]{fontenc}
+\usepackage[vietnamese,english]{babel}
+\usepackage{lmodern}
+
+% ---- Page layout ----
+\usepackage[margin=2.5cm, top=3cm, bottom=3cm]{geometry}
+
+% ---- Graphics & Colors ----
+\usepackage{graphicx}
+\usepackage{xcolor}
+\definecolor{codegray}{rgb}{0.95,0.95,0.95}
+\definecolor{codeblue}{rgb}{0.0,0.3,0.6}
+\definecolor{linkblue}{rgb}{0.1,0.2,0.7}
+
+% ---- Listings (code blocks) ----
+\usepackage{listings}
+\lstdefinestyle{bashstyle}{
+  backgroundcolor=\color{codegray},
+  basicstyle=\ttfamily\footnotesize,
+  breakatwhitespace=false,
+  breaklines=true,
+  captionpos=b,
+  keepspaces=true,
+  numberstyle=\tiny\color{gray},
+  showstringspaces=false,
+  showtabs=false,
+  tabsize=2,
+  frame=single,
+  rulecolor=\color{gray!60},
+  xleftmargin=8pt,
+  xrightmargin=4pt
+}
+\lstdefinestyle{yamlstyle}{
+  backgroundcolor=\color{codegray},
+  basicstyle=\ttfamily\footnotesize,
+  breaklines=true,
+  captionpos=b,
+  frame=single,
+  rulecolor=\color{gray!60},
+  xleftmargin=8pt,
+  xrightmargin=4pt,
+  keywordstyle=\color{codeblue}\bfseries,
+  commentstyle=\color{gray},
+  stringstyle=\color{teal}
+}
+\lstset{style=bashstyle}
+
+% ---- Hyperlinks ----
+\usepackage[colorlinks=true,linkcolor=linkblue,urlcolor=linkblue,citecolor=linkblue]{hyperref}
+
+% ---- Tables ----
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{longtable}
+\usepackage{multirow}
+\usepackage{array}
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+\newcolumntype{C}[1]{>{\centering\arraybackslash}p{#1}}
+
+% ---- Misc packages ----
+\usepackage{enumitem}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{tcolorbox}
+\tcbuselibrary{skins,breakable}
+\usepackage{float}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{amsmath}
+\usepackage{tikz}
+
+% ---- Custom info-boxes ----
+\newtcolorbox{infobox}[1][]{
+  colback=blue!5, colframe=codeblue,
+  title=#1, fonttitle=\bfseries,
+  breakable
+}
+\newtcolorbox{warnbox}[1][]{
+  colback=orange!10, colframe=orange!70!black,
+  title=#1, fonttitle=\bfseries,
+  breakable
+}
+\newtcolorbox{successbox}[1][]{
+  colback=green!8, colframe=green!50!black,
+  title=#1, fonttitle=\bfseries,
+  breakable
+}
+
+% ---- Header / Footer ----
+\setlength{\headheight}{14pt}
+\addtolength{\topmargin}{-2pt}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small Đồ án 2 — Hệ thống CD}
+\fancyhead[R]{\small DevOps Fundamentals HKII 2025-2026}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+% ---- Title formatting ----
+\titleformat{\chapter}[display]
+  {\normalfont\huge\bfseries\color{codeblue}}
+  {\chaptertitlename\ \thechapter}{20pt}{\Huge}
+\titleformat{\section}
+  {\normalfont\Large\bfseries\color{codeblue!80!black}}
+  {\thesection}{1em}{}
+\titleformat{\subsection}
+  {\normalfont\large\bfseries}
+  {\thesubsection}{1em}{}
+\titleformat{\subsubsection}
+  {\normalfont\normalsize\bfseries}
+  {\thesubsubsection}{1em}{}
+
+% ============================================================
+\begin{document}
+
+% ---- Bìa báo cáo ----
+\input{sections/00-bia}
+
+% ---- Table of Contents ----
+\tableofcontents
+\newpage
+
+% ============================================================
+%  BODY — include các section riêng
+% ============================================================
+\input{sections/01-tong-quan}
+\input{sections/02-cau-hinh}
+\input{sections/03-kiem-thu}
+\input{sections/04-van-de}
+
+\end{document}

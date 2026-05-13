@@ -1,0 +1,230 @@
+% ============================================================
+%  SECTION 3: KIỂM THỬ
+% ============================================================
+\chapter{Kiểm thử}
+
+\section{Kiểm thử CI Pipeline (Yêu cầu 3)}
+
+\subsection{Kịch bản test}
+
+\begin{lstlisting}[style=bashstyle, caption=Test CI pipeline]
+# Tao branch moi
+git checkout -b dev_tax_service
+
+# Chinh sua code trong service tax
+echo "// test change" >> tax/src/main/java/com/yas/tax/TaxApplication.java
+
+# Commit va push
+git add .
+git commit -m "test: trigger CI pipeline for tax service"
+git push origin dev_tax_service
+\end{lstlisting}
+
+\subsection{Kết quả mong đợi}
+
+\begin{enumerate}
+  \item Workflow \texttt{CI Build and Push} tự động trigger
+  \item Job \texttt{detect-changes} phát hiện thư mục \texttt{tax/} thay đổi
+  \item Job \texttt{build-java} chạy: Maven build \textrightarrow{} Docker build \textrightarrow{} push image
+  \item Image được push lên Docker Hub: \texttt{<DOCKER\_USER>/tax:<commit\_sha>}
+  \item Có thể kiểm tra tại: \href{https://hub.docker.com}{hub.docker.com}
+\end{enumerate}
+
+\begin{successbox}[Kết quả kiểm thử CI]
+\begin{lstlisting}[style=bashstyle]
+# Kiem tra image tren Docker Hub
+docker pull <DOCKER_USER>/tax:abc1234
+# Status: Downloaded newer image
+
+# Xac nhan tag correct
+docker image ls | grep tax
+# <DOCKER_USER>/tax   abc1234   sha256:...   2 minutes ago
+\end{lstlisting}
+\end{successbox}
+
+% ============================================================
+\section{Kiểm thử Developer Build (Yêu cầu 4)}
+
+\subsection{Kịch bản test}
+
+\begin{enumerate}
+  \item Vào GitHub \textrightarrow{} Actions \textrightarrow{} \textbf{developer\_build} \textrightarrow{} \textbf{Run workflow}
+  \item Nhập:
+        \begin{itemize}
+          \item \texttt{service\_name}: \texttt{tax}
+          \item \texttt{branch\_name}: \texttt{dev\_tax\_service}
+        \end{itemize}
+  \item Click \textbf{Run workflow}
+\end{enumerate}
+
+\subsection{Kết quả}
+
+\begin{lstlisting}[style=bashstyle, caption=Kiểm tra sau khi developer\_build chạy]
+# Kiem tra namespace developer
+kubectl get pods -n developer
+# NAME                              READY   STATUS    RESTARTS   AGE
+# cart-xxx                          2/2     Running   0          2m
+# order-xxx                         2/2     Running   0          2m
+# tax-xxx                           2/2     Running   0          2m  <- custom image
+# ...
+
+# Lay NodePort cua tax service
+kubectl get svc tax -n developer
+# NAME   TYPE       CLUSTER-IP    EXTERNAL-IP   PORT(S)          AGE
+# tax    NodePort   10.43.x.x     <none>        80:3xxxx/TCP     2m
+
+# Them vao /etc/hosts tren may developer
+<WORKER_IP> developer.yas.local.com api.developer.yas.local.com
+
+# Test truy cap
+curl http://api.developer.yas.local.com/tax/actuator/health
+# {"status":"UP"}
+\end{lstlisting}
+
+% ============================================================
+\section{Kiểm thử Cleanup (Yêu cầu 5)}
+
+\begin{lstlisting}[style=bashstyle, caption=Test cleanup workflow]
+# Sau khi chay cleanup_developer_build workflow
+kubectl get namespace developer
+# Error from server (NotFound): namespaces "developer" not found
+# -> Namespace da bi xoa thanh cong
+\end{lstlisting}
+
+% ============================================================
+\section{Kiểm thử Dev/Staging Deploy (Yêu cầu 6)}
+
+\subsection{Test Dev Environment}
+
+\begin{lstlisting}[style=bashstyle, caption=Trigger dev deploy bằng push vào main]
+git checkout main
+git merge dev_tax_service
+git push origin main
+# -> Workflow npt-dev-deploy.yml tu dong chay
+# -> ArgoCD ApplicationSet sync -> deploy vao namespace dev
+\end{lstlisting}
+
+\begin{lstlisting}[style=bashstyle, caption=Kiểm tra namespace dev]
+kubectl get pods -n dev | grep -c Running
+# 20+  <- tat ca service dang Running
+
+curl http://storefront.dev.yas.local.com
+# HTTP 200
+\end{lstlisting}
+
+\subsection{Test Staging Environment}
+
+\begin{lstlisting}[style=bashstyle, caption=Trigger staging deploy bằng tag]
+git tag v1.0.0
+git push origin v1.0.0
+# -> Workflow npt-staging-deploy.yml chay
+# -> Build tat ca services voi tag :v1.0.0
+# -> Deploy vao namespace staging
+
+kubectl get pods -n staging
+# All running with image tag v1.0.0
+\end{lstlisting}
+
+% ============================================================
+\section{Kiểm thử Istio mTLS (Nâng cao)}
+
+\subsection{Kiểm tra mTLS đang hoạt động}
+
+\begin{lstlisting}[style=bashstyle, caption=Verify mTLS STRICT mode]
+# Kiem tra PeerAuthentication
+kubectl get peerauthentication -n yas
+# NAME           MODE     AGE
+# default-mtls   STRICT   1d
+
+# Kiem tra pod co 2/2 containers (co sidecar)
+kubectl get pods -n yas | grep "2/2"
+# Tat ca pods phai co 2/2 Running
+
+# Verify bang istioctl
+./istio-1.24.3/bin/istioctl experimental authz check \
+  $(kubectl get pod -n yas -l app.kubernetes.io/name=product \
+    -o jsonpath='{.items[0].metadata.name}') -n yas
+\end{lstlisting}
+
+\subsection{Kiểm tra Authorization Policy}
+
+\begin{lstlisting}[style=bashstyle, caption=Test Authorization Policy]
+# Test 1: order duoc phep goi tax (co trong policy)
+kubectl exec -n yas deploy/order -- \
+  curl -v http://tax/tax/actuator/health
+# -> HTTP 200 OK  (THANH CONG - duoc phep)
+
+# Test 2: search khong duoc phep goi tax (khong co trong policy)
+kubectl exec -n yas deploy/search -- \
+  curl -v http://tax/tax/actuator/health
+# -> RBAC: access denied
+# -> HTTP 403 Forbidden  (THANH CONG - bi chan)
+\end{lstlisting}
+
+\subsection{Kiểm tra Retry Policy}
+
+\begin{lstlisting}[style=bashstyle, caption=Test Retry Policy]
+# Xem log Envoy de thay retry
+kubectl logs deploy/order -n yas -c istio-proxy | grep "retry\|upstream"
+# upstream_request_count: 3  <- thu lai 3 lan
+
+# Kiem tra config retry tren VirtualService
+kubectl get virtualservice tax-retry -n yas -o yaml
+\end{lstlisting}
+
+\subsection{Kiali Topology}
+
+\begin{lstlisting}[style=bashstyle, caption=Truy cập Kiali và kiểm tra topology]
+# Port-forward Kiali
+kubectl port-forward svc/kiali -n istio-system 20001:20001 &
+
+# Truy cap: http://localhost:20001
+# Menu: Graph -> Namespace: yas
+# Bat: Display -> Security (hien thi lock icon cho mTLS)
+# Ket qua: Tat ca service-to-service connection hien lock icon xanh = mTLS active
+\end{lstlisting}
+
+\begin{infobox}[Kết quả Kiali sau khi hoàn thiện cấu hình]
+\begin{itemize}
+  \item Tất cả 21 DestinationRule hiển thị \textbf{[OK] xanh} (không còn wildcard host)
+  \item Tất cả 18 Service hiển thị \textbf{[OK] xanh} (đã fix port name \texttt{http-metric})
+  \item AuthorizationPolicy hiển thị đúng workload (đã sửa selector sang \texttt{app.kubernetes.io/name})
+  \item Service mesh topology hiển thị đầy đủ traffic flow với mTLS lock icon
+\end{itemize}
+\end{infobox}
+
+% ============================================================
+\section{Kiểm thử End-to-End}
+
+\begin{lstlisting}[style=bashstyle, caption=Test tổng thể các URL hệ thống]
+# Storefront (ung dung chinh)
+curl -o /dev/null -w "%{http_code}" http://storefront.yas.local.com
+# -> 200
+
+# Backoffice
+curl -o /dev/null -w "%{http_code}" http://backoffice.yas.local.com
+# -> 302 (redirect den Keycloak login)
+
+# Keycloak (Identity)
+curl -o /dev/null -w "%{http_code}" http://identity.yas.local.com
+# -> 302
+
+# pgAdmin
+curl -o /dev/null -w "%{http_code}" http://pgadmin.yas.local.com
+# -> 302
+
+# AKHQ (Kafka UI)
+curl -o /dev/null -w "%{http_code}" http://akhq.yas.local.com
+# -> 307
+
+# Grafana (Observability)
+curl -o /dev/null -w "%{http_code}" http://grafana.yas.local.com
+# -> 302
+\end{lstlisting}
+
+\begin{lstlisting}[style=bashstyle, caption=Kiểm tra tổng thể pods]
+kubectl get pods -A --no-headers | awk '{print $4}' | sort | uniq -c | sort -rn
+# 56+ Running
+#   3 Completed   <- ingress admission jobs, binh thuong
+# 0 Error / CrashLoopBackOff / Pending
+\end{lstlisting}

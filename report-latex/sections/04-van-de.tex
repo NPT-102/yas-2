@@ -1,0 +1,314 @@
+% ============================================================
+%  SECTION 4: VẤN ĐỀ GẶP PHẢI VÀ CÁCH KHẮC PHỤC
+% ============================================================
+\chapter{Vấn đề gặp phải và Cách khắc phục}
+
+\section{Vấn đề Infrastructure}
+
+\subsection{PostgreSQL cluster không tạo được — Helm template syntax error}
+
+\textbf{Triệu chứng:} Sau khi chạy \texttt{setup-cluster.sh}, chỉ có
+\texttt{postgres-operator} pod Running nhưng không có pod database nào.
+
+\textbf{Nguyên nhân:} Trong file \texttt{k8s/deploy/postgres/postgresql/templates/postgresql.yaml},
+hai dòng cấu hình có khoảng trắng thừa trong cặp ngoặc nhọn Helm:
+
+\begin{lstlisting}[style=yamlstyle, caption=Lỗi Helm template syntax]
+# SAI: Helm coi day la string literal, khong phai template expression
+recommendation: { { .Values.username } }
+webhook:         { { .Values.username } }
+
+# DUNG:
+recommendation: {{ .Values.username }}
+webhook:         {{ .Values.username }}
+\end{lstlisting}
+
+\textbf{Cách khắc phục:}
+\begin{lstlisting}[style=bashstyle]
+sed -i 's/{ { .Values.username } }/{{ .Values.username }}/g' \
+  k8s/deploy/postgres/postgresql/templates/postgresql.yaml
+helm upgrade --install postgres ./postgres/postgresql \
+  --namespace postgres --set replicas=1 --set username=yasadminuser
+\end{lstlisting}
+
+% ----------------------------------------------------------
+\subsection{Strimzi Kafka — Chuỗi 3 vấn đề tương thích}
+
+\subsubsection{Vấn đề 2a: Strimzi 0.51.0 không hỗ trợ ZooKeeper mode}
+
+Repo gốc dùng Kafka với ZooKeeper mode. Strimzi từ v0.46.0 đã loại bỏ hoàn toàn
+hỗ trợ ZooKeeper, chỉ còn KRaft mode.
+
+\subsubsection{Vấn đề 2b: Strimzi 0.44.0/0.45.0 không tương thích K8s 1.35}
+
+\begin{lstlisting}[style=bashstyle]
+# Logs Strimzi 0.44.0 tren K8s 1.35:
+java.lang.NoSuchFieldError: emulationMajor
+  at io.fabric8.kubernetes.client...
+# -> fabric8 library cu chua ho tro field moi cua K8s 1.35 API
+\end{lstlisting}
+
+\subsubsection{Vấn đề 2c: Strimzi 0.51.0 + Kafka version sai}
+
+\begin{lstlisting}[style=bashstyle]
+# Logs Strimzi 0.51.0:
+"Unsupported Kafka version 3.9.0. Supported versions are: [4.0.0, 4.1.0]"
+\end{lstlisting}
+
+\textbf{Giải pháp cuối cùng:} Chuyển sang Strimzi 0.51.0 + Kafka 4.1.0 + KRaft mode.
+
+\begin{lstlisting}[style=yamlstyle, caption=Cấu trúc kafka-cluster.yaml sau khi sửa]
+# KafkaNodePool (moi - thay the ZooKeeper + replicas + storage)
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaNodePool
+metadata:
+  name: kafka-cluster-dual-role
+  labels:
+    strimzi.io/cluster: kafka-cluster
+spec:
+  replicas: 1
+  roles:
+    - controller   # Thay the ZooKeeper
+    - broker
+  storage:
+    type: persistent-claim
+    size: 10Gi
+---
+# Kafka (sua - them annotations KRaft, bo zookeeper section)
+apiVersion: kafka.strimzi.io/v1beta2
+kind: Kafka
+metadata:
+  name: kafka-cluster
+  annotations:
+    strimzi.io/kraft: enabled         # BAT BUOC
+    strimzi.io/node-pools: enabled    # BAT BUOC
+spec:
+  kafka:
+    version: "4.1.0"                  # DOI TU 3.9.0
+    # KHONG CON spec.zookeeper
+\end{lstlisting}
+
+% ----------------------------------------------------------
+\subsection{Promtail CrashLoopBackOff — ``too many open files''}
+
+\textbf{Nguyên nhân:} Promtail dùng inotify để theo dõi file log. Giới hạn mặc định
+quá thấp dẫn đến crash.
+
+\textbf{Cách khắc phục:}
+\begin{lstlisting}[style=bashstyle]
+# Tren Minikube (phai lam lai sau moi restart):
+minikube ssh -- "sudo sysctl -w fs.inotify.max_user_instances=1024"
+
+# Tren K3s (chi can lam 1 lan, persist vinh vien):
+echo "fs.inotify.max_user_watches=524288" | sudo tee -a /etc/sysctl.d/99-k3s.conf
+sudo sysctl --system
+kubectl rollout restart daemonset/promtail -n observability
+\end{lstlisting}
+
+% ----------------------------------------------------------
+\subsection{ArgoCD ApplicationSet Controller CrashLoopBackOff}
+
+\textbf{Nguyên nhân:} CRD \texttt{ApplicationSet} chưa được đăng ký trong cluster.
+Khi dùng \texttt{kubectl apply} thông thường để apply CRD ArgoCD ($>$256KB),
+gặp lỗi annotation size limit.
+
+\textbf{Cách khắc phục:}
+\begin{lstlisting}[style=bashstyle]
+# Dung --server-side de bypass annotation size limit
+kubectl apply -k "https://github.com/argoproj/argo-cd/manifests/crds?ref=stable" \
+  --server-side
+
+kubectl rollout restart deployment/argocd-applicationset-controller -n argocd
+\end{lstlisting}
+
+\textbf{Giải thích:} Flag \texttt{--server-side} chuyển logic apply sang API server,
+không lưu annotation \texttt{last-applied-configuration} \textrightarrow{} không bị giới hạn 262144 bytes.
+
+% ----------------------------------------------------------
+\subsection{Loki chart mới yêu cầu schema\_config}
+
+\textbf{Nguyên nhân:} Loki chart 6.x bắt buộc có \texttt{schema\_config}.
+File \texttt{loki.values.yaml} gốc thiếu trường này.
+
+\textbf{Cách khắc phục:}
+\begin{lstlisting}[style=bashstyle]
+helm upgrade --install loki grafana/loki \
+  --namespace observability \
+  -f ./observability/loki.values.yaml \
+  --set loki.useTestSchema=true  # Tu tao schema mac dinh
+\end{lstlisting}
+
+% ----------------------------------------------------------
+\subsection{Prometheus/Grafana — leaked secrets validation}
+
+\textbf{Nguyên nhân:} Grafana chart mới có security validation, từ chối field
+\texttt{database.password} được định nghĩa trực tiếp trong values.
+
+\textbf{Cách khắc phục:}
+\begin{lstlisting}[style=bashstyle]
+helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
+  --namespace observability \
+  -f ./observability/prometheus.values.yaml \
+  --set grafana.assertNoLeakedSecrets=false
+\end{lstlisting}
+
+% ----------------------------------------------------------
+\subsection{OpenTelemetry Collector — receiver/exporter ``loki'' không tồn tại}
+
+\textbf{Nguyên nhân:} OTel Collector image mới không bundle \texttt{loki} receiver/exporter.
+Thêm vào đó, \texttt{logging} exporter bị rename thành \texttt{debug} và API
+\texttt{v1alpha1} đã deprecated.
+
+\begin{table}[H]
+  \centering
+  \caption{Thay đổi cấu hình OpenTelemetry Collector}
+  \begin{tabularx}{\textwidth}{L{4cm}L{4cm}X}
+    \toprule
+    \textbf{Cũ} & \textbf{Mới} & \textbf{Lý do} \\
+    \midrule
+    \texttt{receivers.loki} & Xóa & Không có trong standard image \\
+    \texttt{exporters.loki} & \texttt{exporters.otlphttp/loki} & Dùng OTLP gửi đến Loki gateway \\
+    \texttt{exporters.logging} & \texttt{exporters.debug} & \texttt{logging} bị rename \\
+    \texttt{processors.batch: null} & \texttt{processors.batch: \{\}} & Tránh null object warning \\
+    \texttt{v1alpha1} & \texttt{v1beta1} & \texttt{v1alpha1} deprecated \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\textbf{Cách khắc phục:} Phải xóa CR cũ trước khi reinstall (tránh Helm strategic merge giữ config cũ):
+\begin{lstlisting}[style=bashstyle]
+kubectl delete opentelemetrycollectors opentelemetry -n observability
+helm uninstall opentelemetry-collector -n observability
+helm upgrade --install opentelemetry-collector ./observability/opentelemetry \
+  --namespace observability
+\end{lstlisting}
+
+% ============================================================
+\section{Vấn đề K3s và Chuyển đổi từ Minikube}
+
+\subsection{Cluster quá tải — API server ngừng hoạt động (Minikube)}
+
+\textbf{Nguyên nhân:} Minikube chạy trong Docker container bị giới hạn RAM ($\sim$4GB).
+Sau khi cài Loki (9 pods mới) + Prometheus (6 pods), hệ thống vượt quá giới hạn
+\textrightarrow{} kernel OOM killer tắt kubelet và API server.
+
+\textbf{Cách khắc phục:} Chuyển sang K3s (overhead chỉ $\sim$512MB), thêm worker node
+để phân phối workload.
+
+\subsection{K3s agent không start — port 6444 đang bị chiếm}
+
+\textbf{Triệu chứng:}
+\begin{lstlisting}[style=bashstyle]
+systemctl status k3s-agent
+# -> listen tcp 0.0.0.0:6444: bind: address already in use
+\end{lstlisting}
+
+\textbf{Cách khắc phục:}
+\begin{lstlisting}[style=bashstyle]
+# Tim process dang dung port 6444
+ss -tlnp | grep 6444
+# Kill process cu
+kill -9 <PID>
+sudo systemctl restart k3s-agent
+\end{lstlisting}
+
+\subsection{Firewall Fedora block inter-pod traffic}
+
+\textbf{Triệu chứng:} \texttt{ingress-nginx} trả 502, logs có
+\texttt{connect() failed (113: Host is unreachable)}.
+
+\textbf{Nguyên nhân:} Fedora firewalld không tự nhận interface CNI của K3s.
+
+\textbf{Cách khắc phục:}
+\begin{lstlisting}[style=bashstyle]
+sudo firewall-cmd --permanent --zone=trusted --add-interface=cni0
+sudo firewall-cmd --permanent --zone=trusted --add-interface=flannel.1
+sudo firewall-cmd --permanent --zone=trusted --add-source=10.42.0.0/16
+sudo firewall-cmd --permanent --zone=trusted --add-source=10.43.0.0/16
+sudo firewall-cmd --reload
+\end{lstlisting}
+
+% ============================================================
+\section{Vấn đề Istio Service Mesh}
+
+\subsection{502 Bad Gateway sau khi bật mTLS STRICT}
+
+\textbf{Nguyên nhân:} ingress-nginx proxy qua Pod IP (PassthroughCluster) thay vì
+service identity \textrightarrow{} DestinationRule không được áp dụng \textrightarrow{} mTLS fail.
+
+\textbf{Các hướng đã thử:}
+\begin{enumerate}
+  \item [Không] Đổi toàn namespace sang \texttt{PERMISSIVE} --- không đạt yêu cầu
+  \item [Không] Dùng \texttt{portLevelMtls} --- không áp dụng được namespace-wide
+  \item [OK] Inject sidecar cho ingress-nginx + export DestinationRule + bật \texttt{service-upstream}
+\end{enumerate}
+
+\subsection{Kiali cảnh báo KIA0601 — Port name sai format}
+
+\textbf{Nguyên nhân:} Port metrics của backend service có \texttt{name: metric},
+Istio yêu cầu tên port phải bắt đầu bằng protocol.
+
+\textbf{Cách khắc phục:}
+\begin{lstlisting}[style=bashstyle]
+# Patch tat ca 18 service dang live
+for svc in cart customer inventory location media order product \
+           promotion rating recommendation sampledata search \
+           storefront-bff backoffice-bff tax webhook payment payment-paypal; do
+  kubectl patch svc "$svc" -n yas --type='json' \
+    -p='[{"op":"replace","path":"/spec/ports/1/name","value":"http-metric"}]'
+done
+\end{lstlisting}
+
+\subsection{Kiali lỗi DestinationRule wildcard host}
+
+\textbf{Nguyên nhân:} Kiali v2.x không validate được wildcard host
+\texttt{*.yas.svc.cluster.local}.
+
+\textbf{Cách khắc phục:} Xóa 1 DestinationRule wildcard, thay bằng 21 DestinationRule
+riêng cho từng service. Sau khi tách, tất cả hiển thị \textbf{[OK]} xanh trong Kiali.
+
+\subsection{AuthorizationPolicy không match workload}
+
+\textbf{Nguyên nhân:} Policy dùng selector \texttt{app: cart} nhưng pod thực tế
+dùng label \texttt{app.kubernetes.io/name: cart} (do Helm chart tạo ra).
+
+\textbf{Cách khắc phục:} Sửa tất cả selector:
+\begin{lstlisting}[style=yamlstyle]
+# Truoc:
+selector:
+  matchLabels:
+    app: cart
+# Sau:
+selector:
+  matchLabels:
+    app.kubernetes.io/name: cart
+\end{lstlisting}
+
+% ============================================================
+\section{Tổng kết}
+
+\begin{table}[H]
+  \centering
+  \caption{Tổng kết vấn đề và trạng thái giải quyết}
+  \begin{tabularx}{\textwidth}{L{5cm}L{3cm}X}
+    \toprule
+    \textbf{Vấn đề} & \textbf{Trạng thái} & \textbf{Giải pháp} \\
+    \midrule
+    PostgreSQL Helm template syntax & Đã fix & Xóa khoảng trắng trong \texttt{\{\{ \}\}} \\
+    Strimzi Kafka ZooKeeper/KRaft & Đã fix & KRaft mode + Kafka 4.1.0 \\
+    Promtail inotify limit & Đã fix & \texttt{/etc/sysctl.d/99-k3s.conf} \\
+    ArgoCD CRD size limit & Đã fix & \texttt{kubectl apply --server-side} \\
+    Loki schema\_config & Đã fix & \texttt{--set loki.useTestSchema=true} \\
+    Grafana leaked secrets & Đã fix & \texttt{assertNoLeakedSecrets=false} \\
+    OTel Collector loki receiver & Đã fix & Dùng \texttt{otlphttp/loki} exporter \\
+    Cluster OOM (Minikube) & Giải quyết & Chuyển sang K3s + worker nodes \\
+    K3s agent port conflict & Đã fix & Kill process cũ + restart agent \\
+    Fedora firewall block CNI & Đã fix & \texttt{firewall-cmd trusted zone} \\
+    502 Bad Gateway (mTLS) & Đã fix & \texttt{service-upstream} + sidecar injection \\
+    Kiali KIA0601 port name & Đã fix & Rename \texttt{metric} \textrightarrow{} \texttt{http-metric} \\
+    Kiali wildcard DestinationRule & Đã fix & Tách thành 21 DR riêng \\
+    AuthorizationPolicy selector & Đã fix & Dùng \texttt{app.kubernetes.io/name} \\
+    Debezium Connect crash & Bỏ qua & Không ảnh hưởng đến đồ án CD \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
