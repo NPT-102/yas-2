@@ -1,0 +1,20 @@
+# .github/workflows/ci-rating.yaml
+name: CI - Rating Service
+
+on:
+  push:
+    branches:
+      - '**'
+    paths:
+      - 'rating/**'
+      - '!rating/**.md'
+  workflow_dispatch:
+
+jobs:
+  build-and-push:
+    uses: ./.github/workflows/ci-build-push.yaml
+    with:
+      service_name: rating
+    secrets:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}

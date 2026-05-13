@@ -1,0 +1,20 @@
+# .github/workflows/ci-payment.yaml
+name: CI - Payment Service
+
+on:
+  push:
+    branches:
+      - '**'
+    paths:
+      - 'payment/**'
+      - '!payment/**.md'
+  workflow_dispatch:
+
+jobs:
+  build-and-push:
+    uses: ./.github/workflows/ci-build-push.yaml
+    with:
+      service_name: payment
+    secrets:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}

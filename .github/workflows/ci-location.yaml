@@ -1,0 +1,20 @@
+# .github/workflows/ci-location.yaml
+name: CI - Location Service
+
+on:
+  push:
+    branches:
+      - '**'
+    paths:
+      - 'location/**'
+      - '!location/**.md'
+  workflow_dispatch:
+
+jobs:
+  build-and-push:
+    uses: ./.github/workflows/ci-build-push.yaml
+    with:
+      service_name: location
+    secrets:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}

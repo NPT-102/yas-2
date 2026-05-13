@@ -1,0 +1,20 @@
+# .github/workflows/ci-media.yaml
+name: CI - Media Service
+
+on:
+  push:
+    branches:
+      - '**'
+    paths:
+      - 'media/**'
+      - '!media/**.md'
+  workflow_dispatch:
+
+jobs:
+  build-and-push:
+    uses: ./.github/workflows/ci-build-push.yaml
+    with:
+      service_name: media
+    secrets:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}

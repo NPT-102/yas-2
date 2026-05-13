@@ -20,7 +20,7 @@ jobs:
   build-java:
     name: Build Java Artifacts
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -40,10 +40,12 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
-      - name: Build all Core Demo services
+      - name: Build all services
         shell: bash
         run: |
-          mvn -T 1C clean package -DskipTests -pl product,cart,customer -am
+          mvn -T 1C clean package -DskipTests \
+            -pl product,cart,customer,backoffice-bff,inventory,location,media,order,payment,payment-paypal,promotion,rating,recommendation,sampledata,search,storefront-bff,tax,webhook \
+            -am
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -53,17 +55,50 @@ jobs:
             product/target/*.jar
             cart/target/*.jar
             customer/target/*.jar
+            backoffice-bff/target/*.jar
+            inventory/target/*.jar
+            location/target/*.jar
+            media/target/*.jar
+            order/target/*.jar
+            payment/target/*.jar
+            payment-paypal/target/*.jar
+            promotion/target/*.jar
+            rating/target/*.jar
+            recommendation/target/*.jar
+            sampledata/target/*.jar
+            search/target/*.jar
+            storefront-bff/target/*.jar
+            tax/target/*.jar
+            webhook/target/*.jar
 
   build-and-push-images:
     name: Build & Push Docker Images
     needs: build-java
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     strategy:
       fail-fast: false
-      max-parallel: 3
+      max-parallel: 4
       matrix:
-        service: [product, cart, customer]
+        service:
+          - product
+          - cart
+          - customer
+          - backoffice-bff
+          - inventory
+          - location
+          - media
+          - order
+          - payment
+          - payment-paypal
+          - promotion
+          - rating
+          - recommendation
+          - sampledata
+          - search
+          - storefront-bff
+          - tax
+          - webhook
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -125,11 +160,26 @@ jobs:
             yq -i '.backend.image.tag = strenv(TAG)' k8s/charts/product/values-staging.yaml
             yq -i '.backend.image.tag = strenv(TAG)' k8s/charts/cart/values-staging.yaml
             yq -i '.backend.image.tag = strenv(TAG)' k8s/charts/customer/values-staging.yaml
+            yq -i '.backend.image.tag = strenv(TAG)' k8s/charts/backoffice-bff/values-staging.yaml
+            yq -i '.backend.image.tag = strenv(TAG)' k8s/charts/inventory/values-staging.yaml
+            yq -i '.backend.image.tag = strenv(TAG)' k8s/charts/location/values-staging.yaml
+            yq -i '.backend.image.tag = strenv(TAG)' k8s/charts/media/values-staging.yaml
+            yq -i '.backend.image.tag = strenv(TAG)' k8s/charts/order/values-staging.yaml
+            yq -i '.backend.image.tag = strenv(TAG)' k8s/charts/payment/values-staging.yaml
+            yq -i '.backend.image.tag = strenv(TAG)' k8s/charts/payment-paypal/values-staging.yaml
+            yq -i '.backend.image.tag = strenv(TAG)' k8s/charts/promotion/values-staging.yaml
+            yq -i '.backend.image.tag = strenv(TAG)' k8s/charts/rating/values-staging.yaml
+            yq -i '.backend.image.tag = strenv(TAG)' k8s/charts/recommendation/values-staging.yaml
+            yq -i '.backend.image.tag = strenv(TAG)' k8s/charts/sampledata/values-staging.yaml
+            yq -i '.backend.image.tag = strenv(TAG)' k8s/charts/search/values-staging.yaml
+            yq -i '.backend.image.tag = strenv(TAG)' k8s/charts/storefront-bff/values-staging.yaml
+            yq -i '.backend.image.tag = strenv(TAG)' k8s/charts/tax/values-staging.yaml
+            yq -i '.backend.image.tag = strenv(TAG)' k8s/charts/webhook/values-staging.yaml
 
       - name: Commit and push changes
         shell: bash
         run: |
-          changed=$(git status --porcelain -- k8s/charts/product/values-staging.yaml k8s/charts/cart/values-staging.yaml k8s/charts/customer/values-staging.yaml)
+          changed=$(git status --porcelain -- k8s/charts/*/values-staging.yaml)
           if [[ -z "$changed" ]]; then
             echo "No changes to commit"
             exit 0
@@ -137,7 +187,7 @@ jobs:
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add k8s/charts/product/values-staging.yaml k8s/charts/cart/values-staging.yaml k8s/charts/customer/values-staging.yaml
+          git add k8s/charts/*/values-staging.yaml
           git commit -m "chore: release ${{ steps.vars.outputs.tag }} to staging"
           git pull --rebase origin main
           git push origin HEAD:main

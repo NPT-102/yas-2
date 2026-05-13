@@ -1,0 +1,20 @@
+# .github/workflows/ci-storefront-bff.yaml
+name: CI - Storefront Bff Service
+
+on:
+  push:
+    branches:
+      - '**'
+    paths:
+      - 'storefront-bff/**'
+      - '!storefront-bff/**.md'
+  workflow_dispatch:
+
+jobs:
+  build-and-push:
+    uses: ./.github/workflows/ci-build-push.yaml
+    with:
+      service_name: storefront-bff
+    secrets:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}

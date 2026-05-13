@@ -17,6 +17,51 @@ on:
       customer_branch:
         required: false
         default: 'main'
+      backoffice_bff_branch:
+        required: false
+        default: 'main'
+      inventory_branch:
+        required: false
+        default: 'main'
+      location_branch:
+        required: false
+        default: 'main'
+      media_branch:
+        required: false
+        default: 'main'
+      order_branch:
+        required: false
+        default: 'main'
+      payment_branch:
+        required: false
+        default: 'main'
+      payment_paypal_branch:
+        required: false
+        default: 'main'
+      promotion_branch:
+        required: false
+        default: 'main'
+      rating_branch:
+        required: false
+        default: 'main'
+      recommendation_branch:
+        required: false
+        default: 'main'
+      sampledata_branch:
+        required: false
+        default: 'main'
+      search_branch:
+        required: false
+        default: 'main'
+      storefront_bff_branch:
+        required: false
+        default: 'main'
+      tax_branch:
+        required: false
+        default: 'main'
+      webhook_branch:
+        required: false
+        default: 'main'
 
 env:
   NAMESPACE: 'dev-${{ github.event.inputs.developer_name }}'
@@ -28,14 +73,6 @@ jobs:
       run:
         shell: pwsh
     steps:
-      #      # NOTE: Uncomment only if the runner is NOT on the same machine as Minikube.
-      #      # For local self-hosted runners, keep this commented to use local config.
-      #      - name: Configure kubeconfig
-      #        run: |
-      #          if (!(Test-Path "$HOME\.kube")) { New-Item -ItemType Directory -Path "$HOME\.kube" -Force }
-      #          $bytes = [System.Convert]::FromBase64String("${{ secrets.KUBECONFIG_BASE64 }}")
-      #          [System.IO.File]::WriteAllBytes("$HOME\.kube\config", $bytes)
-
       - name: Create namespace
         run: kubectl create namespace ${{ env.NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
 
@@ -65,7 +102,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Resolve image tags and deploy core services
+      - name: Resolve image tags and deploy all services
         run: |
           $REGISTRY = "${{ secrets.DOCKERHUB_USERNAME }}"
 
@@ -76,51 +113,70 @@ jobs:
               return $remote.Split("`t")[0].Substring(0,7)
           }
 
-          # Deploy product
-          $TAG_PRODUCT = Get-Tag "${{ github.event.inputs.product_branch }}"
-          helm dependency build ./k8s/charts/product
-          helm upgrade --install product ./k8s/charts/product --namespace ${{ env.NAMESPACE }} --set image.repository=$REGISTRY/yas-k3s-product --set image.tag=$TAG_PRODUCT --set service.type=NodePort --set backend.serviceMonitor.enabled=false --set backend.databaseConnectionUrl=jdbc:postgresql://postgresql.postgres:5432 --set backend.livenessProbe.initialDelaySeconds=120 --set backend.livenessProbe.failureThreshold=30 --set backend.livenessProbe.httpGet.path=/actuator/health/liveness --set backend.livenessProbe.httpGet.port=metric --set backend.readinessProbe.initialDelaySeconds=120 --set backend.readinessProbe.failureThreshold=30 --set backend.readinessProbe.httpGet.path=/actuator/health/readiness --set backend.readinessProbe.httpGet.port=metric --wait --timeout=5m
+          function Deploy-Service {
+              param([string]$Name, [string]$Tag)
+              Write-Host "Deploying $Name with tag $Tag..."
+              helm dependency build ./k8s/charts/$Name
+              helm upgrade --install $Name ./k8s/charts/$Name `
+                --namespace ${{ env.NAMESPACE }} `
+                --set image.repository=$REGISTRY/yas-k3s-$Name `
+                --set image.tag=$Tag `
+                --set service.type=NodePort `
+                --set backend.serviceMonitor.enabled=false `
+                --set backend.databaseConnectionUrl=jdbc:postgresql://postgresql.postgres:5432 `
+                --set backend.livenessProbe.initialDelaySeconds=120 `
+                --set backend.livenessProbe.failureThreshold=30 `
+                --set backend.livenessProbe.httpGet.path=/actuator/health/liveness `
+                --set backend.livenessProbe.httpGet.port=metric `
+                --set backend.readinessProbe.initialDelaySeconds=120 `
+                --set backend.readinessProbe.failureThreshold=30 `
+                --set backend.readinessProbe.httpGet.path=/actuator/health/readiness `
+                --set backend.readinessProbe.httpGet.port=metric `
+                --wait --timeout=5m
+          }
 
-          # Deploy cart
-          $TAG_CART = Get-Tag "${{ github.event.inputs.cart_branch }}"
-          helm dependency build ./k8s/charts/cart
-          helm upgrade --install cart ./k8s/charts/cart --namespace ${{ env.NAMESPACE }} --set image.repository=$REGISTRY/yas-k3s-cart --set image.tag=$TAG_CART --set service.type=NodePort --set backend.serviceMonitor.enabled=false --set backend.databaseConnectionUrl=jdbc:postgresql://postgresql.postgres:5432 --set backend.livenessProbe.initialDelaySeconds=120 --set backend.livenessProbe.failureThreshold=30 --set backend.livenessProbe.httpGet.path=/actuator/health/liveness --set backend.livenessProbe.httpGet.port=metric --set backend.readinessProbe.initialDelaySeconds=120 --set backend.readinessProbe.failureThreshold=30 --set backend.readinessProbe.httpGet.path=/actuator/health/readiness --set backend.readinessProbe.httpGet.port=metric --wait --timeout=5m
+          Deploy-Service "product"        (Get-Tag "${{ github.event.inputs.product_branch }}")
+          Deploy-Service "cart"           (Get-Tag "${{ github.event.inputs.cart_branch }}")
+          Deploy-Service "customer"       (Get-Tag "${{ github.event.inputs.customer_branch }}")
+          Deploy-Service "backoffice-bff" (Get-Tag "${{ github.event.inputs.backoffice_bff_branch }}")
+          Deploy-Service "inventory"      (Get-Tag "${{ github.event.inputs.inventory_branch }}")
+          Deploy-Service "location"       (Get-Tag "${{ github.event.inputs.location_branch }}")
+          Deploy-Service "media"          (Get-Tag "${{ github.event.inputs.media_branch }}")
+          Deploy-Service "order"          (Get-Tag "${{ github.event.inputs.order_branch }}")
+          Deploy-Service "payment"        (Get-Tag "${{ github.event.inputs.payment_branch }}")
+          Deploy-Service "payment-paypal" (Get-Tag "${{ github.event.inputs.payment_paypal_branch }}")
+          Deploy-Service "promotion"      (Get-Tag "${{ github.event.inputs.promotion_branch }}")
+          Deploy-Service "rating"         (Get-Tag "${{ github.event.inputs.rating_branch }}")
+          Deploy-Service "recommendation" (Get-Tag "${{ github.event.inputs.recommendation_branch }}")
+          Deploy-Service "sampledata"     (Get-Tag "${{ github.event.inputs.sampledata_branch }}")
+          Deploy-Service "search"         (Get-Tag "${{ github.event.inputs.search_branch }}")
+          Deploy-Service "storefront-bff" (Get-Tag "${{ github.event.inputs.storefront_bff_branch }}")
+          Deploy-Service "tax"            (Get-Tag "${{ github.event.inputs.tax_branch }}")
+          Deploy-Service "webhook"        (Get-Tag "${{ github.event.inputs.webhook_branch }}")
 
-          # Deploy customer
-          $TAG_CUSTOMER = Get-Tag "${{ github.event.inputs.customer_branch }}"
-          helm dependency build ./k8s/charts/customer
-          helm upgrade --install customer ./k8s/charts/customer --namespace ${{ env.NAMESPACE }} --set image.repository=$REGISTRY/yas-k3s-customer --set image.tag=$TAG_CUSTOMER --set service.type=NodePort --set backend.serviceMonitor.enabled=false --set backend.databaseConnectionUrl=jdbc:postgresql://postgresql.postgres:5432 --set backend.livenessProbe.initialDelaySeconds=120 --set backend.livenessProbe.failureThreshold=30 --set backend.livenessProbe.httpGet.path=/actuator/health/liveness --set backend.livenessProbe.httpGet.port=metric --set backend.readinessProbe.initialDelaySeconds=120 --set backend.readinessProbe.failureThreshold=30 --set backend.readinessProbe.httpGet.path=/actuator/health/readiness --set backend.readinessProbe.httpGet.port=metric --wait --timeout=5m
-
-      - name: Verify deployment
+      - name: Verify deployments
         run: |
           $ErrorActionPreference = "Stop"
 
           function Test-Rollout {
             param([string]$DeploymentName)
-
             Write-Host "Verifying rollout for deployment/$DeploymentName in namespace ${{ env.NAMESPACE }}"
             kubectl rollout status "deployment/$DeploymentName" -n ${{ env.NAMESPACE }} --timeout=3m
-
             if ($LASTEXITCODE -ne 0) {
               Write-Host "::error::Rollout failed for deployment/$DeploymentName in namespace ${{ env.NAMESPACE }}."
-              Write-Host "---- Pods ----"
               kubectl get pods -n ${{ env.NAMESPACE }} -o wide
-              Write-Host "---- Deployment Describe ----"
               kubectl describe "deployment/$DeploymentName" -n ${{ env.NAMESPACE }}
-              Write-Host "---- Recent Events ----"
               kubectl get events -n ${{ env.NAMESPACE }} --sort-by=.lastTimestamp | Select-Object -Last 30
               exit 1
             }
           }
 
-          Test-Rollout -DeploymentName "product"
-          Test-Rollout -DeploymentName "cart"
-          Test-Rollout -DeploymentName "customer"
-
-      - name: Print access info
-        run: |
-          $NODE_IP = (kubectl get nodes -o jsonpath='{.items[0].status.addresses[0].address}')
-          Write-Host "=========================================="
-          Write-Host "Node IP: $NODE_IP"
-          kubectl get svc -n ${{ env.NAMESPACE }}
-          Write-Host "=========================================="
+          $services = @(
+            "product", "cart", "customer", "backoffice-bff", "inventory",
+            "location", "media", "order", "payment", "payment-paypal",
+            "promotion", "rating", "recommendation", "sampledata", "search",
+            "storefront-bff", "tax", "webhook"
+          )
+          foreach ($svc in $services) {
+            Test-Rollout $svc
+          }
