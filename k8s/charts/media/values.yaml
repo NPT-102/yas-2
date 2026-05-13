@@ -1,6 +1,6 @@
 backend:
   image:
-    repository: ghcr.io/nashtech-garage/yas-media
+    repository: npt219/yas-k3s-media
     tag: latest
 
   nameOverride: media

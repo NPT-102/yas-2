@@ -1,6 +1,6 @@
 backend:
   image:
-    repository: ghcr.io/nashtech-garage/yas-location
+    repository: npt219/yas-k3s-location
     tag: latest
 
   nameOverride: location

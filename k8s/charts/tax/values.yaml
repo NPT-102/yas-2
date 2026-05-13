@@ -1,6 +1,6 @@
 backend:
   image:
-    repository: ghcr.io/nashtech-garage/yas-tax
+    repository: npt219/yas-k3s-tax
     tag: latest
 
   nameOverride: tax
