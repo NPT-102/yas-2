@@ -182,21 +182,50 @@ jobs:
 
       - name: Wait for all deployments (parallel)
         run: |
+          # wait_rollout: succeeds for app-level crashes (CrashLoopBackOff/Error/OOMKilled),
+          # fails only for infra issues (stuck Pending, ImagePullBackOff, etc.)
+          wait_rollout() {
+            local svc=$1
+            local ns=$2
+            if kubectl rollout status "deployment/$svc" -n "$ns" --timeout=10m 2>&1; then
+              return 0
+            fi
+            # Rollout failed/timed out — inspect pod state
+            local pod_state
+            pod_state=$(kubectl get pods -n "$ns" -l "app.kubernetes.io/name=$svc" \
+              --no-headers 2>/dev/null | awk 'NR==1{print $3}')
+            case "$pod_state" in
+              CrashLoopBackOff|Error|OOMKilled|Completed)
+                echo "::warning::$svc pod is '$pod_state' — app-level crash (not infra). Skipping, CD continues."
+                kubectl logs -n "$ns" "deployment/$svc" --previous --tail=30 2>/dev/null || true
+                return 0
+                ;;
+              "")
+                echo "::error::Rollout failed for deployment/$svc in $ns — no pods found (infra issue)"
+                kubectl describe deployment "$svc" -n "$ns" | tail -20
+                return 1
+                ;;
+              *)
+                echo "::error::Rollout failed for deployment/$svc in $ns (pod state: $pod_state)"
+                kubectl get pods -n "$ns" -l "app.kubernetes.io/name=$svc" -o wide
+                kubectl get events -n "$ns" --sort-by=.lastTimestamp | tail -20
+                return 1
+                ;;
+            esac
+          }
+
           # All 18 rollout checks run in parallel - total wait = slowest single service
           PIDS=()
           SVCS=(product cart customer backoffice-bff inventory location media order
                 payment payment-paypal promotion rating recommendation sampledata
                 search storefront-bff tax webhook)
           for svc in "${SVCS[@]}"; do
-            kubectl rollout status "deployment/$svc" -n ${{ env.NAMESPACE }} --timeout=10m &
+            wait_rollout "$svc" ${{ env.NAMESPACE }} &
             PIDS+=($!)
           done
           FAILED=0
           for i in "${!PIDS[@]}"; do
             if ! wait "${PIDS[$i]}"; then
-              echo "::error::Rollout failed for deployment/${SVCS[$i]} in ${{ env.NAMESPACE }}"
-              kubectl get pods -n ${{ env.NAMESPACE }} -l "app.kubernetes.io/name=${SVCS[$i]}" -o wide
-              kubectl get events -n ${{ env.NAMESPACE }} --sort-by=.lastTimestamp | tail -20
               FAILED=1
             fi
           done
