@@ -1,0 +1,20 @@
+# .github/workflows/cd-developer-cleanup.yaml
+name: CD - Developer Cleanup
+
+on:
+  workflow_dispatch:
+    inputs:
+      developer_name:
+        description: "Developer name"
+        required: true
+        default: "dev1"
+
+jobs:
+  cleanup:
+    runs-on: self-hosted
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Delete namespace
+        run: kubectl delete namespace dev-${{ github.event.inputs.developer_name }} --ignore-not-found=true

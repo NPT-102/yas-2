@@ -1,0 +1,143 @@
+name: Release Staging on Tag
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+concurrency:
+  group: release-staging-${{ github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions:
+  contents: write
+
+jobs:
+  build-java:
+    name: Build Java Artifacts
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Validate release tag format
+        shell: bash
+        run: |
+          if [[ ! "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid tag format: ${GITHUB_REF_NAME}"
+            exit 1
+          fi
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Build all Core Demo services
+        shell: bash
+        run: |
+          mvn -T 1C clean package -DskipTests -pl product,cart,customer -am
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: java-artifacts
+          path: |
+            product/target/*.jar
+            cart/target/*.jar
+            customer/target/*.jar
+
+  build-and-push-images:
+    name: Build & Push Docker Images
+    needs: build-java
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        service: [product, cart, customer]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: java-artifacts
+          path: .
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Get release tag
+        id: vars
+        shell: bash
+        run: |
+          echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push ${{ matrix.service }}
+        uses: docker/build-push-action@v6
+        with:
+          context: ./${{ matrix.service }}
+          push: true
+          tags: ${{ env.DOCKERHUB_USERNAME }}/yas-k3s-${{ matrix.service }}:${{ steps.vars.outputs.tag }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+  update-staging-values:
+    name: Update Staging Config
+    needs: build-and-push-images
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout main branch
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Get release tag
+        id: vars
+        shell: bash
+        run: |
+          echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Update staging values with new tag
+        uses: mikefarah/yq@v4.44.3
+        env:
+          TAG: ${{ steps.vars.outputs.tag }}
+        with:
+          cmd: |
+            yq -i '.backend.image.tag = strenv(TAG)' k8s/charts/product/values-staging.yaml
+            yq -i '.backend.image.tag = strenv(TAG)' k8s/charts/cart/values-staging.yaml
+            yq -i '.backend.image.tag = strenv(TAG)' k8s/charts/customer/values-staging.yaml
+
+      - name: Commit and push changes
+        shell: bash
+        run: |
+          changed=$(git status --porcelain -- k8s/charts/product/values-staging.yaml k8s/charts/cart/values-staging.yaml k8s/charts/customer/values-staging.yaml)
+          if [[ -z "$changed" ]]; then
+            echo "No changes to commit"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add k8s/charts/product/values-staging.yaml k8s/charts/cart/values-staging.yaml k8s/charts/customer/values-staging.yaml
+          git commit -m "chore: release ${{ steps.vars.outputs.tag }} to staging"
+          git pull --rebase origin main
+          git push origin HEAD:main
