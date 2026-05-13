@@ -2,4 +2,4 @@
 backend:
   replicaCount: 0
   image:
-    tag: v1.0.0
+    tag: v1.0.1
