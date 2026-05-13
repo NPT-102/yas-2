@@ -71,7 +71,7 @@ jobs:
     runs-on: self-hosted
     defaults:
       run:
-        shell: pwsh
+        shell: bash
     steps:
       - name: Create namespace
         run: kubectl create namespace ${{ env.NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
@@ -81,7 +81,7 @@ jobs:
     runs-on: self-hosted
     defaults:
       run:
-        shell: pwsh
+        shell: bash
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -90,93 +90,99 @@ jobs:
         run: |
           kubectl apply -f ./k8s/mini-infra.yaml --namespace ${{ env.NAMESPACE }}
           helm dependency build ./k8s/charts/yas-configuration
-          helm upgrade --install yas-infra ./k8s/charts/yas-configuration --namespace ${{ env.NAMESPACE }} --set global.namespace=${{ env.NAMESPACE }} --wait --timeout=180s
+          helm upgrade --install yas-infra ./k8s/charts/yas-configuration \
+            --namespace ${{ env.NAMESPACE }} \
+            --set global.namespace=${{ env.NAMESPACE }} \
+            --wait --timeout=180s
 
   deploy-core-services:
     needs: deploy-infrastructure
     runs-on: self-hosted
     defaults:
       run:
-        shell: pwsh
+        shell: bash
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Resolve image tags and deploy all services
+        env:
+          REGISTRY: ${{ secrets.DOCKER_USER }}
         run: |
-          $REGISTRY = "${{ secrets.DOCKER_USER }}"
-
-          function Get-Tag($branch) {
-              if ($branch -eq "main") { return "latest" }
-              $remote = (git ls-remote origin "refs/heads/$branch")
-              if ($null -eq $remote) { return "latest" }
-              return $remote.Split("`t")[0].Substring(0,7)
+          get_tag() {
+            local branch="$1"
+            if [ "$branch" = "main" ]; then
+              echo "latest"
+              return
+            fi
+            local sha
+            sha=$(git ls-remote origin "refs/heads/$branch" | cut -c1-7)
+            if [ -z "$sha" ]; then
+              echo "latest"
+            else
+              echo "$sha"
+            fi
           }
 
-          function Deploy-Service {
-              param([string]$Name, [string]$Tag)
-              Write-Host "Deploying $Name with tag $Tag..."
-              helm dependency build ./k8s/charts/$Name
-              helm upgrade --install $Name ./k8s/charts/$Name `
-                --namespace ${{ env.NAMESPACE }} `
-                --set image.repository=$REGISTRY/yas-k3s-$Name `
-                --set image.tag=$Tag `
-                --set service.type=NodePort `
-                --set backend.serviceMonitor.enabled=false `
-                --set backend.databaseConnectionUrl=jdbc:postgresql://postgresql.postgres:5432 `
-                --set backend.livenessProbe.initialDelaySeconds=120 `
-                --set backend.livenessProbe.failureThreshold=30 `
-                --set backend.livenessProbe.httpGet.path=/actuator/health/liveness `
-                --set backend.livenessProbe.httpGet.port=metric `
-                --set backend.readinessProbe.initialDelaySeconds=120 `
-                --set backend.readinessProbe.failureThreshold=30 `
-                --set backend.readinessProbe.httpGet.path=/actuator/health/readiness `
-                --set backend.readinessProbe.httpGet.port=metric `
-                --wait --timeout=5m
+          deploy_service() {
+            local name="$1"
+            local tag="$2"
+            echo "Deploying $name with tag $tag..."
+            helm dependency build ./k8s/charts/$name
+            helm upgrade --install "$name" "./k8s/charts/$name" \
+              --namespace ${{ env.NAMESPACE }} \
+              --set image.repository=$REGISTRY/yas-k3s-$name \
+              --set image.tag="$tag" \
+              --set service.type=NodePort \
+              --set backend.serviceMonitor.enabled=false \
+              --set backend.databaseConnectionUrl=jdbc:postgresql://postgresql.postgres:5432 \
+              --set backend.livenessProbe.initialDelaySeconds=120 \
+              --set backend.livenessProbe.failureThreshold=30 \
+              --set backend.livenessProbe.httpGet.path=/actuator/health/liveness \
+              --set backend.livenessProbe.httpGet.port=metric \
+              --set backend.readinessProbe.initialDelaySeconds=120 \
+              --set backend.readinessProbe.failureThreshold=30 \
+              --set backend.readinessProbe.httpGet.path=/actuator/health/readiness \
+              --set backend.readinessProbe.httpGet.port=metric \
+              --wait --timeout=5m
           }
 
-          Deploy-Service "product"        (Get-Tag "${{ github.event.inputs.product_branch }}")
-          Deploy-Service "cart"           (Get-Tag "${{ github.event.inputs.cart_branch }}")
-          Deploy-Service "customer"       (Get-Tag "${{ github.event.inputs.customer_branch }}")
-          Deploy-Service "backoffice-bff" (Get-Tag "${{ github.event.inputs.backoffice_bff_branch }}")
-          Deploy-Service "inventory"      (Get-Tag "${{ github.event.inputs.inventory_branch }}")
-          Deploy-Service "location"       (Get-Tag "${{ github.event.inputs.location_branch }}")
-          Deploy-Service "media"          (Get-Tag "${{ github.event.inputs.media_branch }}")
-          Deploy-Service "order"          (Get-Tag "${{ github.event.inputs.order_branch }}")
-          Deploy-Service "payment"        (Get-Tag "${{ github.event.inputs.payment_branch }}")
-          Deploy-Service "payment-paypal" (Get-Tag "${{ github.event.inputs.payment_paypal_branch }}")
-          Deploy-Service "promotion"      (Get-Tag "${{ github.event.inputs.promotion_branch }}")
-          Deploy-Service "rating"         (Get-Tag "${{ github.event.inputs.rating_branch }}")
-          Deploy-Service "recommendation" (Get-Tag "${{ github.event.inputs.recommendation_branch }}")
-          Deploy-Service "sampledata"     (Get-Tag "${{ github.event.inputs.sampledata_branch }}")
-          Deploy-Service "search"         (Get-Tag "${{ github.event.inputs.search_branch }}")
-          Deploy-Service "storefront-bff" (Get-Tag "${{ github.event.inputs.storefront_bff_branch }}")
-          Deploy-Service "tax"            (Get-Tag "${{ github.event.inputs.tax_branch }}")
-          Deploy-Service "webhook"        (Get-Tag "${{ github.event.inputs.webhook_branch }}")
+          deploy_service "product"        "$(get_tag '${{ github.event.inputs.product_branch }}')"
+          deploy_service "cart"           "$(get_tag '${{ github.event.inputs.cart_branch }}')"
+          deploy_service "customer"       "$(get_tag '${{ github.event.inputs.customer_branch }}')"
+          deploy_service "backoffice-bff" "$(get_tag '${{ github.event.inputs.backoffice_bff_branch }}')"
+          deploy_service "inventory"      "$(get_tag '${{ github.event.inputs.inventory_branch }}')"
+          deploy_service "location"       "$(get_tag '${{ github.event.inputs.location_branch }}')"
+          deploy_service "media"          "$(get_tag '${{ github.event.inputs.media_branch }}')"
+          deploy_service "order"          "$(get_tag '${{ github.event.inputs.order_branch }}')"
+          deploy_service "payment"        "$(get_tag '${{ github.event.inputs.payment_branch }}')"
+          deploy_service "payment-paypal" "$(get_tag '${{ github.event.inputs.payment_paypal_branch }}')"
+          deploy_service "promotion"      "$(get_tag '${{ github.event.inputs.promotion_branch }}')"
+          deploy_service "rating"         "$(get_tag '${{ github.event.inputs.rating_branch }}')"
+          deploy_service "recommendation" "$(get_tag '${{ github.event.inputs.recommendation_branch }}')"
+          deploy_service "sampledata"     "$(get_tag '${{ github.event.inputs.sampledata_branch }}')"
+          deploy_service "search"         "$(get_tag '${{ github.event.inputs.search_branch }}')"
+          deploy_service "storefront-bff" "$(get_tag '${{ github.event.inputs.storefront_bff_branch }}')"
+          deploy_service "tax"            "$(get_tag '${{ github.event.inputs.tax_branch }}')"
+          deploy_service "webhook"        "$(get_tag '${{ github.event.inputs.webhook_branch }}')"
 
       - name: Verify deployments
         run: |
-          $ErrorActionPreference = "Stop"
-
-          function Test-Rollout {
-            param([string]$DeploymentName)
-            Write-Host "Verifying rollout for deployment/$DeploymentName in namespace ${{ env.NAMESPACE }}"
-            kubectl rollout status "deployment/$DeploymentName" -n ${{ env.NAMESPACE }} --timeout=3m
-            if ($LASTEXITCODE -ne 0) {
-              Write-Host "::error::Rollout failed for deployment/$DeploymentName in namespace ${{ env.NAMESPACE }}."
+          set -e
+          verify_rollout() {
+            local name="$1"
+            echo "Verifying rollout for deployment/$name in namespace ${{ env.NAMESPACE }}"
+            kubectl rollout status "deployment/$name" -n ${{ env.NAMESPACE }} --timeout=3m || {
+              echo "::error::Rollout failed for deployment/$name in namespace ${{ env.NAMESPACE }}."
               kubectl get pods -n ${{ env.NAMESPACE }} -o wide
-              kubectl describe "deployment/$DeploymentName" -n ${{ env.NAMESPACE }}
-              kubectl get events -n ${{ env.NAMESPACE }} --sort-by=.lastTimestamp | Select-Object -Last 30
+              kubectl describe "deployment/$name" -n ${{ env.NAMESPACE }}
+              kubectl get events -n ${{ env.NAMESPACE }} --sort-by=.lastTimestamp | tail -30
               exit 1
             }
           }
 
-          $services = @(
-            "product", "cart", "customer", "backoffice-bff", "inventory",
-            "location", "media", "order", "payment", "payment-paypal",
-            "promotion", "rating", "recommendation", "sampledata", "search",
-            "storefront-bff", "tax", "webhook"
-          )
-          foreach ($svc in $services) {
-            Test-Rollout $svc
-          }
+          for svc in product cart customer backoffice-bff inventory location media order \
+                     payment payment-paypal promotion rating recommendation sampledata \
+                     search storefront-bff tax webhook; do
+            verify_rollout "$svc"
+          done

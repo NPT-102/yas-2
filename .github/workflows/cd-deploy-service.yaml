@@ -24,33 +24,39 @@ jobs:
     runs-on: self-hosted
     defaults:
       run:
-        shell: pwsh # PowerShell Core is portable and exists on both Windows and Linux GHA runners
+        shell: bash
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      #      # NOTE: Uncomment only if the runner is NOT on the same machine as Minikube.
-      #      # Keep commented for local dev to avoid port mismatch issues.
-      #      - name: Configure kubeconfig
-      #        run: |
-      #          if (!(Test-Path "$HOME\.kube")) { New-Item -ItemType Directory -Path "$HOME\.kube" -Force }
-      #          $bytes = [System.Convert]::FromBase64String("${{ secrets.KUBECONFIG_BASE64 }}")
-      #          [System.IO.File]::WriteAllBytes("$HOME\.kube\config", $bytes)
-
       - name: Deploy service
         run: |
           helm dependency build ./k8s/charts/${{ inputs.service_name }}
-          helm upgrade --install ${{ inputs.service_name }} ./k8s/charts/${{ inputs.service_name }} --namespace ${{ inputs.namespace }} --create-namespace --set image.repository=${{ secrets.DOCKER_USER }}/yas-k3s-${{ inputs.service_name }} --set image.tag=${{ inputs.image_tag }} --set service.type=NodePort --set backend.serviceMonitor.enabled=false --set backend.databaseConnectionUrl=jdbc:postgresql://postgresql.postgres:5432 --set backend.livenessProbe.initialDelaySeconds=120 --set backend.livenessProbe.failureThreshold=30 --set backend.livenessProbe.httpGet.path=/actuator/health/liveness --set backend.livenessProbe.httpGet.port=metric --set backend.readinessProbe.initialDelaySeconds=120 --set backend.readinessProbe.failureThreshold=30 --set backend.readinessProbe.httpGet.path=/actuator/health/readiness --set backend.readinessProbe.httpGet.port=metric --wait --timeout=120s
+          helm upgrade --install ${{ inputs.service_name }} ./k8s/charts/${{ inputs.service_name }} \
+            --namespace ${{ inputs.namespace }} --create-namespace \
+            --set image.repository=${{ secrets.DOCKER_USER }}/yas-k3s-${{ inputs.service_name }} \
+            --set image.tag=${{ inputs.image_tag }} \
+            --set service.type=NodePort \
+            --set backend.serviceMonitor.enabled=false \
+            --set backend.databaseConnectionUrl=jdbc:postgresql://postgresql.postgres:5432 \
+            --set backend.livenessProbe.initialDelaySeconds=120 \
+            --set backend.livenessProbe.failureThreshold=30 \
+            --set backend.livenessProbe.httpGet.path=/actuator/health/liveness \
+            --set backend.livenessProbe.httpGet.port=metric \
+            --set backend.readinessProbe.initialDelaySeconds=120 \
+            --set backend.readinessProbe.failureThreshold=30 \
+            --set backend.readinessProbe.httpGet.path=/actuator/health/readiness \
+            --set backend.readinessProbe.httpGet.port=metric \
+            --wait --timeout=120s
 
       - name: Verify deployment
         run: |
-          $ErrorActionPreference = "Stop"
-          kubectl rollout status "deployment/${{ inputs.service_name }}" -n ${{ inputs.namespace }} --timeout=3m
-
-          if ($LASTEXITCODE -ne 0) {
-            Write-Host "::error::Rollout failed for deployment/${{ inputs.service_name }} in namespace ${{ inputs.namespace }}."
+          set -e
+          kubectl rollout status "deployment/${{ inputs.service_name }}" \
+            -n ${{ inputs.namespace }} --timeout=3m || {
+            echo "::error::Rollout failed for deployment/${{ inputs.service_name }} in namespace ${{ inputs.namespace }}."
             kubectl get pods -n ${{ inputs.namespace }} -o wide
             kubectl describe "deployment/${{ inputs.service_name }}" -n ${{ inputs.namespace }}
-            kubectl get events -n ${{ inputs.namespace }} --sort-by=.lastTimestamp | Select-Object -Last 30
+            kubectl get events -n ${{ inputs.namespace }} --sort-by=.lastTimestamp | tail -30
             exit 1
           }
