@@ -147,6 +147,7 @@ jobs:
               --set backend.image.repository=$REGISTRY/yas-k3s-$name \
               --set backend.image.tag="$tag" \
               --set backend.service.type=NodePort \
+              --set backend.ingress.enabled=false \
               --set backend.serviceMonitor.enabled=false \
               --set backend.databaseConnectionUrl=jdbc:postgresql://postgresql.postgres:5432 \
               --set backend.livenessProbe.initialDelaySeconds=60 \
