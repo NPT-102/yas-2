@@ -26,7 +26,7 @@ services:
     - OTEL_JAVAAGENT_DEBUG
     volumes:
     - ./docker/libs/opentelemetry-javaagent.jar:/opentelemetry-javaagent.jar
-    - ./deployment/app-config:/app-config
+    - ./infra/k8s/deploy/app-config:/app-config
     networks:
       - yas-network
   elasticsearch:

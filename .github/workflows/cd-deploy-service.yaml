@@ -31,8 +31,8 @@ jobs:
 
       - name: Deploy service
         run: |
-          helm dependency build ./k8s/charts/${{ inputs.service_name }}
-          helm upgrade --install ${{ inputs.service_name }} ./k8s/charts/${{ inputs.service_name }} \
+          helm dependency build ./infra/k8s/charts/${{ inputs.service_name }}
+          helm upgrade --install ${{ inputs.service_name }} ./infra/k8s/charts/${{ inputs.service_name }} \
             --namespace ${{ inputs.namespace }} --create-namespace \
             --set image.repository=${{ secrets.DOCKER_USER }}/yas-k3s-${{ inputs.service_name }} \
             --set image.tag=${{ inputs.image_tag }} \

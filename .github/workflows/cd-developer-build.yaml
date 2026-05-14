@@ -89,8 +89,8 @@ jobs:
       - name: Deploy infrastructure
         run: |
           helm repo update
-          helm dependency build --skip-refresh ./k8s/charts/yas-configuration
-          helm upgrade --install yas-infra ./k8s/charts/yas-configuration \
+          helm dependency build --skip-refresh ./infra/k8s/charts/yas-configuration
+          helm upgrade --install yas-infra ./infra/k8s/charts/yas-configuration \
             --namespace ${{ env.NAMESPACE }} \
             --set global.namespace=${{ env.NAMESPACE }} \
             --wait --timeout=180s
@@ -113,7 +113,7 @@ jobs:
           for svc in product cart customer backoffice-bff inventory location media order \
                      payment payment-paypal promotion rating recommendation sampledata \
                      search storefront-bff tax webhook; do
-            helm dependency build --skip-refresh ./k8s/charts/$svc &
+            helm dependency build --skip-refresh ./infra/k8s/charts/$svc &
             PIDS+=($!)
           done
           for pid in "${PIDS[@]}"; do wait "$pid"; done
@@ -142,7 +142,7 @@ jobs:
             local name="$1"
             local tag="$2"
             echo "Deploying $name with tag $tag..."
-            helm upgrade --install "$name" "./k8s/charts/$name" \
+            helm upgrade --install "$name" "./infra/k8s/charts/$name" \
               --namespace ${{ env.NAMESPACE }} \
               --set backend.image.repository=$REGISTRY/yas-k3s-$name \
               --set backend.image.tag="$tag" \

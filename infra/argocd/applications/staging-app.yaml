@@ -13,7 +13,7 @@ spec:
   source:
     repoURL: https://github.com/NPT-102/yas-2.git
     targetRevision: main
-    path: k8s/charts/yas-staging
+    path: infra/k8s/charts/yas-staging
     helm:
       valueFiles:
         - values.yaml

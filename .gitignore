@@ -39,3 +39,36 @@ minikube-linux-amd64
 
 # Runtime data
 tempo-data/
+
+# LaTeX - Temporary and Build Files
+*.aux
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.synctex.gz
+*.synctex
+*.synctex(busy)
+*.toc
+*.xdv
+*.bbl
+*.blg
+*.run.xml
+*.bcf
+*.pdfpc
+*.lof
+*.lot
+*.fmt
+*.fot
+*.cb
+*.cb2
+.*.lb
+*.dvi
+*-converted-to.*
+*-blx.aux
+*-blx.bib
+*.nav
+*.snm
+*.vrb
+*.pdfsync
+

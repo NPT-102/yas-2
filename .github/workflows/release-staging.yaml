@@ -157,29 +157,29 @@ jobs:
           TAG: ${{ steps.vars.outputs.tag }}
         with:
           cmd: |
-            yq -i '.backend.image.tag = strenv(TAG)' k8s/charts/product/values-staging.yaml
-            yq -i '.backend.image.tag = strenv(TAG)' k8s/charts/cart/values-staging.yaml
-            yq -i '.backend.image.tag = strenv(TAG)' k8s/charts/customer/values-staging.yaml
-            yq -i '.backend.image.tag = strenv(TAG)' k8s/charts/backoffice-bff/values-staging.yaml
-            yq -i '.backend.image.tag = strenv(TAG)' k8s/charts/inventory/values-staging.yaml
-            yq -i '.backend.image.tag = strenv(TAG)' k8s/charts/location/values-staging.yaml
-            yq -i '.backend.image.tag = strenv(TAG)' k8s/charts/media/values-staging.yaml
-            yq -i '.backend.image.tag = strenv(TAG)' k8s/charts/order/values-staging.yaml
-            yq -i '.backend.image.tag = strenv(TAG)' k8s/charts/payment/values-staging.yaml
-            yq -i '.backend.image.tag = strenv(TAG)' k8s/charts/payment-paypal/values-staging.yaml
-            yq -i '.backend.image.tag = strenv(TAG)' k8s/charts/promotion/values-staging.yaml
-            yq -i '.backend.image.tag = strenv(TAG)' k8s/charts/rating/values-staging.yaml
-            yq -i '.backend.image.tag = strenv(TAG)' k8s/charts/recommendation/values-staging.yaml
-            yq -i '.backend.image.tag = strenv(TAG)' k8s/charts/sampledata/values-staging.yaml
-            yq -i '.backend.image.tag = strenv(TAG)' k8s/charts/search/values-staging.yaml
-            yq -i '.backend.image.tag = strenv(TAG)' k8s/charts/storefront-bff/values-staging.yaml
-            yq -i '.backend.image.tag = strenv(TAG)' k8s/charts/tax/values-staging.yaml
-            yq -i '.backend.image.tag = strenv(TAG)' k8s/charts/webhook/values-staging.yaml
+            yq -i '.backend.image.tag = strenv(TAG)' infra/k8s/charts/product/values-staging.yaml
+            yq -i '.backend.image.tag = strenv(TAG)' infra/k8s/charts/cart/values-staging.yaml
+            yq -i '.backend.image.tag = strenv(TAG)' infra/k8s/charts/customer/values-staging.yaml
+            yq -i '.backend.image.tag = strenv(TAG)' infra/k8s/charts/backoffice-bff/values-staging.yaml
+            yq -i '.backend.image.tag = strenv(TAG)' infra/k8s/charts/inventory/values-staging.yaml
+            yq -i '.backend.image.tag = strenv(TAG)' infra/k8s/charts/location/values-staging.yaml
+            yq -i '.backend.image.tag = strenv(TAG)' infra/k8s/charts/media/values-staging.yaml
+            yq -i '.backend.image.tag = strenv(TAG)' infra/k8s/charts/order/values-staging.yaml
+            yq -i '.backend.image.tag = strenv(TAG)' infra/k8s/charts/payment/values-staging.yaml
+            yq -i '.backend.image.tag = strenv(TAG)' infra/k8s/charts/payment-paypal/values-staging.yaml
+            yq -i '.backend.image.tag = strenv(TAG)' infra/k8s/charts/promotion/values-staging.yaml
+            yq -i '.backend.image.tag = strenv(TAG)' infra/k8s/charts/rating/values-staging.yaml
+            yq -i '.backend.image.tag = strenv(TAG)' infra/k8s/charts/recommendation/values-staging.yaml
+            yq -i '.backend.image.tag = strenv(TAG)' infra/k8s/charts/sampledata/values-staging.yaml
+            yq -i '.backend.image.tag = strenv(TAG)' infra/k8s/charts/search/values-staging.yaml
+            yq -i '.backend.image.tag = strenv(TAG)' infra/k8s/charts/storefront-bff/values-staging.yaml
+            yq -i '.backend.image.tag = strenv(TAG)' infra/k8s/charts/tax/values-staging.yaml
+            yq -i '.backend.image.tag = strenv(TAG)' infra/k8s/charts/webhook/values-staging.yaml
 
       - name: Commit and push changes
         shell: bash
         run: |
-          changed=$(git status --porcelain -- k8s/charts/*/values-staging.yaml)
+          changed=$(git status --porcelain -- infra/k8s/charts/*/values-staging.yaml)
           if [[ -z "$changed" ]]; then
             echo "No changes to commit"
             exit 0
@@ -187,7 +187,7 @@ jobs:
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add k8s/charts/*/values-staging.yaml
+          git add infra/k8s/charts/*/values-staging.yaml
           git commit -m "chore: release ${{ steps.vars.outputs.tag }} to staging"
           git pull --rebase origin main
           git push origin HEAD:main

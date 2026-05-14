@@ -13,7 +13,7 @@ spec:
   source:
     repoURL: https://github.com/NPT-102/yas-2.git
     targetRevision: main
-    path: k8s/charts/yas-dev
+    path: infra/k8s/charts/yas-dev
     helm:
       valueFiles:
         - values.yaml

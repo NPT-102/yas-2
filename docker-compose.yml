@@ -5,8 +5,8 @@ services:
     image:  nginx:1.27.2
     restart: unless-stopped
     volumes:
-      - ./nginx/templates:/etc/nginx/templates
-      - ./nginx/configuration/custom_proxy_settings.conf:/etc/nginx/conf.d/custom_proxy_settings.conf
+      - ./infra/nginx/templates:/etc/nginx/templates
+      - ./infra/nginx/configuration/custom_proxy_settings.conf:/etc/nginx/conf.d/custom_proxy_settings.conf
     ports:
       - "80:80"
     networks:
@@ -50,7 +50,7 @@ services:
     - OTEL_JAVAAGENT_DEBUG
     volumes:
     - ./docker/libs/opentelemetry-javaagent.jar:/opentelemetry-javaagent.jar
-    - ./deployment/app-config:/app-config
+    - ./infra/k8s/deploy/app-config:/app-config
     networks:
       - yas-network
   backoffice-nextjs:
@@ -90,7 +90,7 @@ services:
     - OTEL_JAVAAGENT_DEBUG
     volumes:
     - ./docker/libs/opentelemetry-javaagent.jar:/opentelemetry-javaagent.jar
-    - ./deployment/app-config:/app-config      
+    - ./infra/k8s/deploy/app-config:/app-config      
     networks:
       - yas-network
   storefront-nextjs:
@@ -121,7 +121,7 @@ services:
     - OTEL_JAVAAGENT_DEBUG
     volumes:
     - ./docker/libs/opentelemetry-javaagent.jar:/opentelemetry-javaagent.jar
-    - ./deployment/app-config:/app-config
+    - ./infra/k8s/deploy/app-config:/app-config
     - ./sampledata/images:/images
     networks:
       - yas-network
@@ -149,7 +149,7 @@ services:
     - OTEL_JAVAAGENT_DEBUG
     volumes:
     - ./docker/libs/opentelemetry-javaagent.jar:/opentelemetry-javaagent.jar
-    - ./deployment/app-config:/app-config
+    - ./infra/k8s/deploy/app-config:/app-config
     networks:
       - yas-network
   customer:
@@ -176,7 +176,7 @@ services:
     - OTEL_JAVAAGENT_DEBUG
     volumes:
     - ./docker/libs/opentelemetry-javaagent.jar:/opentelemetry-javaagent.jar
-    - ./deployment/app-config:/app-config
+    - ./infra/k8s/deploy/app-config:/app-config
     networks:
       - yas-network
   cart:
@@ -204,7 +204,7 @@ services:
     - OTEL_JAVAAGENT_DEBUG
     volumes:
     - ./docker/libs/opentelemetry-javaagent.jar:/opentelemetry-javaagent.jar
-    - ./deployment/app-config:/app-config
+    - ./infra/k8s/deploy/app-config:/app-config
     networks:
       - yas-network
   rating:
@@ -234,7 +234,7 @@ services:
     - OTEL_JAVAAGENT_DEBUG
     volumes:
     - ./docker/libs/opentelemetry-javaagent.jar:/opentelemetry-javaagent.jar
-    - ./deployment/app-config:/app-config
+    - ./infra/k8s/deploy/app-config:/app-config
     networks:
       - yas-network
   order:
@@ -267,7 +267,7 @@ services:
     - YAS_PRICE_INCLUDES_TAX
     volumes:
     - ./docker/libs/opentelemetry-javaagent.jar:/opentelemetry-javaagent.jar
-    - ./deployment/app-config:/app-config
+    - ./infra/k8s/deploy/app-config:/app-config
     networks:
       - yas-network
   payment:
@@ -298,7 +298,7 @@ services:
     - YAS_PRICE_INCLUDES_TAX
     volumes:
     - ./docker/libs/opentelemetry-javaagent.jar:/opentelemetry-javaagent.jar
-    - ./deployment/app-config:/app-config
+    - ./infra/k8s/deploy/app-config:/app-config
     networks:
       - yas-network
   location:
@@ -325,7 +325,7 @@ services:
     - OTEL_JAVAAGENT_DEBUG
     volumes:
     - ./docker/libs/opentelemetry-javaagent.jar:/opentelemetry-javaagent.jar
-    - ./deployment/app-config:/app-config
+    - ./infra/k8s/deploy/app-config:/app-config
     networks:
       - yas-network
   inventory:
@@ -354,7 +354,7 @@ services:
     - OTEL_JAVAAGENT_DEBUG
     volumes:
     - ./docker/libs/opentelemetry-javaagent.jar:/opentelemetry-javaagent.jar
-    - ./deployment/app-config:/app-config
+    - ./infra/k8s/deploy/app-config:/app-config
     networks:
       - yas-network
   promotion:
@@ -382,7 +382,7 @@ services:
     - OTEL_JAVAAGENT_DEBUG
     volumes:
     - ./docker/libs/opentelemetry-javaagent.jar:/opentelemetry-javaagent.jar
-    - ./deployment/app-config:/app-config      
+    - ./infra/k8s/deploy/app-config:/app-config      
     networks:
       - yas-network
   tax:
@@ -410,7 +410,7 @@ services:
     - OTEL_JAVAAGENT_DEBUG
     volumes:
     - ./docker/libs/opentelemetry-javaagent.jar:/opentelemetry-javaagent.jar
-    - ./deployment/app-config:/app-config
+    - ./infra/k8s/deploy/app-config:/app-config
     networks:
     - yas-network
   sampledata:
@@ -439,7 +439,7 @@ services:
       - OTEL_JAVAAGENT_DEBUG
     volumes:
       - ./docker/libs/opentelemetry-javaagent.jar:/opentelemetry-javaagent.jar
-      - ./deployment/app-config:/app-config
+      - ./infra/k8s/deploy/app-config:/app-config
     networks:
       - yas-network
   # webhook:
@@ -467,7 +467,7 @@ services:
   #     - OTEL_JAVAAGENT_DEBUG
   #   volumes:
   #     - ./docker/libs/opentelemetry-javaagent.jar:/opentelemetry-javaagent.jar
-  #     - ./deployment/app-config:/app-config
+  #     - ./infra/k8s/deploy/app-config:/app-config
   #   networks:
   #     - yas-network
   # recommendation:
@@ -501,7 +501,7 @@ services:
   #     - SPRING_AI_AZURE_OPENAI_EMBEDDING_OPTIONS_MODEL
   #   volumes:
   #     - ./docker/libs/opentelemetry-javaagent.jar:/opentelemetry-javaagent.jar
-  #     - ./deployment/app-config:/app-config
+  #     - ./infra/k8s/deploy/app-config:/app-config
   #   networks:
   #     - yas-network
   swagger-ui:

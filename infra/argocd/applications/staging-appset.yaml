@@ -1,9 +1,9 @@
-# ArgoCD ApplicationSet cho môi trường DEV
-# Tự động deploy TẤT CẢ services vào namespace dev khi main branch thay đổi
+# ArgoCD ApplicationSet cho môi trường STAGING
+# Deploy TẤT CẢ services vào namespace staging khi có release tag
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
-  name: yas-dev
+  name: yas-staging
   namespace: argocd
 spec:
   goTemplate: true
@@ -20,11 +20,11 @@ spec:
           - name: backoffice-bff
             chart: backoffice-bff
             hasIngress: "true"
-            ingressHost: "backoffice.dev.yas.local.com"
+            ingressHost: "backoffice.staging.yas.local.com"
           - name: storefront-bff
             chart: storefront-bff
             hasIngress: "true"
-            ingressHost: "dev.yas.local.com"
+            ingressHost: "staging.yas.local.com"
           # UI services
           - name: backoffice-ui
             chart: backoffice-ui
@@ -97,24 +97,24 @@ spec:
             ingressHost: ""
   template:
     metadata:
-      name: 'dev-{{.name}}'
+      name: 'staging-{{.name}}'
       namespace: argocd
       labels:
-        environment: dev
+        environment: staging
         project: yas
     spec:
       project: yas
       source:
         repoURL: https://github.com/NPT-102/yas-2.git
         targetRevision: main
-        path: 'k8s/charts/{{.chart}}'
+        path: 'infra/k8s/charts/{{.chart}}'
         helm:
           valueFiles:
             - values.yaml
-            - values-dev.yaml
+            - values-staging.yaml
       destination:
         server: https://kubernetes.default.svc
-        namespace: dev
+        namespace: staging
       syncPolicy:
         automated:
           prune: true

@@ -1,4 +1,5 @@
 #!/bin/bash
+cd "$(dirname "$0")/../.."
 
 WORKFLOW_TEMPLATE=$(cat .github/workflow-template.yaml)
 SERVICES=(product pricing media storefront backoffice-bff)
