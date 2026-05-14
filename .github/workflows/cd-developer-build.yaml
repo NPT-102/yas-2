@@ -149,15 +149,7 @@ jobs:
               --set backend.service.type=NodePort \
               --set backend.ingress.enabled=false \
               --set backend.serviceMonitor.enabled=false \
-              --set backend.databaseConnectionUrl=jdbc:postgresql://postgresql.postgres:5432 \
-              --set backend.livenessProbe.initialDelaySeconds=60 \
-              --set backend.livenessProbe.failureThreshold=40 \
-              --set backend.livenessProbe.httpGet.path=/actuator/health/liveness \
-              --set backend.livenessProbe.httpGet.port=metric \
-              --set backend.readinessProbe.initialDelaySeconds=60 \
-              --set backend.readinessProbe.failureThreshold=40 \
-              --set backend.readinessProbe.httpGet.path=/actuator/health/readiness \
-              --set backend.readinessProbe.httpGet.port=metric
+              --set backend.databaseConnectionUrl=jdbc:postgresql://postgresql.postgres:5432
             # No --wait: all 18 services deploy fast, then we wait in parallel below
           }
 
