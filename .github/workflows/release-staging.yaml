@@ -44,7 +44,7 @@ jobs:
         shell: bash
         run: |
           mvn -T 1C clean package -DskipTests \
-            -pl product,cart,customer,backoffice-bff,inventory,location,media,order,payment,payment-paypal,promotion,rating,recommendation,sampledata,search,storefront-bff,tax,webhook \
+            -pl product,cart,customer,backoffice-bff,inventory,media,order,search,storefront-bff,tax \
             -am
 
       - name: Upload artifacts
@@ -57,19 +57,11 @@ jobs:
             customer/target/*.jar
             backoffice-bff/target/*.jar
             inventory/target/*.jar
-            location/target/*.jar
             media/target/*.jar
             order/target/*.jar
-            payment/target/*.jar
-            payment-paypal/target/*.jar
-            promotion/target/*.jar
-            rating/target/*.jar
-            recommendation/target/*.jar
-            sampledata/target/*.jar
             search/target/*.jar
             storefront-bff/target/*.jar
             tax/target/*.jar
-            webhook/target/*.jar
 
   build-and-push-images:
     name: Build & Push Docker Images
@@ -86,19 +78,11 @@ jobs:
           - customer
           - backoffice-bff
           - inventory
-          - location
           - media
           - order
-          - payment
-          - payment-paypal
-          - promotion
-          - rating
-          - recommendation
-          - sampledata
           - search
           - storefront-bff
           - tax
-          - webhook
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
