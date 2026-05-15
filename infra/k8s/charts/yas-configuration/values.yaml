@@ -83,12 +83,8 @@ applicationConfig:
       media: http://media/media
       order: http://order/order
       product: http://product/product
-      promotion: http://promotion/promotion
-      rating: http://rating/rating
       search: http://search/search
       tax: http://tax/tax
-      sampledata: http://sampledata/sampledata
-      recommendation: http://recommendation/recommendation
 
 # Gateway config for bff microservices
 gatewayRoutesConfig:
