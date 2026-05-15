@@ -12,7 +12,7 @@ export default function Layout({ children }: Props) {
   return (
     <>
       <Head>
-        <title>Yas - Storefront</title>
+        <title>Nguyen Phuc Tho - Storefront</title>
         <meta name="description" content="Yet another shop storefront" />
         <link rel="icon" href="/favicon.ico" />
       </Head>
