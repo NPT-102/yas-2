@@ -47,10 +47,6 @@ spec:
             chart: inventory
             hasIngress: "false"
             ingressHost: ""
-          - name: location
-            chart: location
-            hasIngress: "false"
-            ingressHost: ""
           - name: media
             chart: media
             hasIngress: "false"
@@ -59,20 +55,8 @@ spec:
             chart: order
             hasIngress: "false"
             ingressHost: ""
-          - name: payment
-            chart: payment
-            hasIngress: "false"
-            ingressHost: ""
           - name: product
             chart: product
-            hasIngress: "false"
-            ingressHost: ""
-          - name: promotion
-            chart: promotion
-            hasIngress: "false"
-            ingressHost: ""
-          - name: rating
-            chart: rating
             hasIngress: "false"
             ingressHost: ""
           - name: search
@@ -81,18 +65,6 @@ spec:
             ingressHost: ""
           - name: tax
             chart: tax
-            hasIngress: "false"
-            ingressHost: ""
-          - name: recommendation
-            chart: recommendation
-            hasIngress: "false"
-            ingressHost: ""
-          - name: webhook
-            chart: webhook
-            hasIngress: "false"
-            ingressHost: ""
-          - name: sampledata
-            chart: sampledata
             hasIngress: "false"
             ingressHost: ""
   template:

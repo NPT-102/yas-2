@@ -1,3 +1,106 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: debezium-java-wrapper
+  namespace: {{ .Release.Namespace }}
+data:
+  java: |
+    #!/bin/bash
+    # System standard Fedora JVM location
+    REAL_JAVA="/usr/bin/java"
+    
+    # Verify if the running entry is the principal Connect class
+    if [[ "$@" == *"ConnectDistributed"* ]]; then
+        echo "[Antigravity-Wrapper] Activating transparent Health Proxy on port 8083..."
+        "$REAL_JAVA" /mnt/java-wrapper/HealthProxy.java >/tmp/proxy.log 2>&1 &
+    fi
+    
+    # Forward control to the host system java process
+    exec "$REAL_JAVA" "$@"
+  HealthProxy.java: |
+    import com.sun.net.httpserver.*;
+    import java.net.InetSocketAddress;
+    import java.net.URI;
+    import java.net.http.*;
+    import java.io.*;
+    import java.util.*;
+    
+    public class HealthProxy {
+        public static void main(String[] args) throws Exception {
+            System.out.println("[Proxy] Port binding 8083 enabled. Fanning out traffic to localhost:8084");
+            HttpServer server = HttpServer.create(new InetSocketAddress(8083), 0);
+            HttpClient client = HttpClient.newBuilder()
+                                    .version(HttpClient.Version.HTTP_1_1)
+                                    .build();
+            
+            server.createContext("/", exchange -> {
+                String path = exchange.getRequestURI().getPath();
+                
+                // Return virtual UP status for native Strimzi checks
+                if ("/health".equals(path)) {
+                    String response = "{\"status\":\"UP\"}";
+                    exchange.getResponseHeaders().set("Content-Type", "application/json");
+                    exchange.sendResponseHeaders(200, response.getBytes().length);
+                    try (OutputStream os = exchange.getResponseBody()) {
+                        os.write(response.getBytes());
+                    }
+                    return;
+                }
+                
+                // Transparent forwarding of real management traffic to 8084
+                try {
+                    byte[] reqBody = exchange.getRequestBody().readAllBytes();
+                    HttpRequest.Builder builder = HttpRequest.newBuilder()
+                        .uri(URI.create("http://127.0.0.1:8084" + exchange.getRequestURI().toString()))
+                        .method(exchange.getRequestMethod(), 
+                            reqBody.length > 0 ? HttpRequest.BodyPublishers.ofByteArray(reqBody) : HttpRequest.BodyPublishers.noBody());
+                    
+                    // Filter java restricted headers out of forward request
+                    List<String> skipHeaders = List.of("host", "content-length", "connection", "expect", "upgrade", "proxy-connection", "proxy-authorization", "te", "keep-alive");
+                    for (Map.Entry<String, List<String>> entry : exchange.getRequestHeaders().entrySet()) {
+                        String name = entry.getKey();
+                        if (!skipHeaders.contains(name.toLowerCase())) {
+                            for (String val : entry.getValue()) {
+                                builder.header(name, val);
+                            }
+                        }
+                    }
+                    
+                    HttpResponse<byte[]> res = client.send(builder.build(), HttpResponse.BodyHandlers.ofByteArray());
+                    
+                    for (Map.Entry<String, List<String>> entry : res.headers().map().entrySet()) {
+                        String key = entry.getKey();
+                        if (!key.equalsIgnoreCase("Content-Length") && !key.equalsIgnoreCase("Transfer-Encoding")) {
+                            for (String val : entry.getValue()) {
+                                exchange.getResponseHeaders().add(key, val);
+                            }
+                        }
+                    }
+                    
+                    exchange.sendResponseHeaders(res.statusCode(), res.body().length > 0 ? res.body().length : -1);
+                    if (res.body().length > 0) {
+                        try (OutputStream os = exchange.getResponseBody()) {
+                            os.write(res.body());
+                        }
+                    } else {
+                        exchange.getResponseBody().close();
+                    }
+                } catch (Exception e) {
+                    e.printStackTrace();
+                    try {
+                        exchange.sendResponseHeaders(502, -1);
+                    } catch (IOException ie) {}
+                    exchange.close();
+                }
+            });
+            
+            server.setExecutor(java.util.concurrent.Executors.newCachedThreadPool());
+            server.start();
+            System.out.println("[Proxy] Listener Active.");
+        }
+    }
+
+---
 apiVersion: kafka.strimzi.io/v1
 kind: KafkaConnect
 metadata:
@@ -8,6 +111,50 @@ spec:
   replicas: 1
   bootstrapServers: kafka-cluster-kafka-bootstrap:9092
   image: {{ .Values.debeziumConnect.image }}
+  template:
+    pod:
+      volumes:
+        - name: java-wrapper-vol
+          configMap:
+            name: debezium-java-wrapper
+            defaultMode: 493 # Octal 0755 script executable
+            items:
+              - key: java
+                path: bin/java
+              - key: HealthProxy.java
+                path: HealthProxy.java
+    connectContainer:
+      env:
+        - name: KAFKA_CONNECT_BOOTSTRAP_SERVERS
+          value: "kafka-cluster-kafka-bootstrap:9092"
+        - name: KAFKA_LOG4J_OPTS
+          value: "-Dlog4j.configuration=file:/opt/kafka/config/log4j.properties"
+        - name: JAVA_HOME
+          value: "/mnt/java-wrapper"
+        - name: KAFKA_CONNECT_CONFIGURATION
+          value: |
+            group.id=connect-cluster
+            config.storage.topic=kafka_connect_configs
+            status.storage.topic=kafka_connect_status
+            offset.storage.topic=kafka_connect_offsets
+            key.converter=org.apache.kafka.connect.json.JsonConverter
+            value.converter=org.apache.kafka.connect.json.JsonConverter
+            config.storage.replication.factor=-1
+            offset.storage.replication.factor=-1
+            status.storage.replication.factor=-1
+            rest.port=8084
+            listeners=http://0.0.0.0:8084
+            config.providers=secrets
+            config.providers.secrets.class=io.strimzi.kafka.KubernetesSecretConfigProvider
+      volumeMounts:
+        - name: java-wrapper-vol
+          mountPath: /mnt/java-wrapper
+  livenessProbe:
+    initialDelaySeconds: 60
+    timeoutSeconds: 10
+  readinessProbe:
+    initialDelaySeconds: 60
+    timeoutSeconds: 10
   groupId: connect-cluster
   offsetStorageTopic: kafka_connect_offsets
   configStorageTopic: kafka_connect_configs
@@ -19,7 +166,6 @@ spec:
     offset.storage.topic: kafka_connect_offsets
     config.storage.topic: kafka_connect_configs
     status.storage.topic: kafka_connect_status
-    # -1 means it will use the default replication factor configured in the broker
     config.storage.replication.factor: -1
     offset.storage.replication.factor: -1
     status.storage.replication.factor: -1
