@@ -1,6 +1,6 @@
 # Staging environment overrides
 backend:
-  replicaCount: 0
+  replicaCount: 1
   image:
     tag: v1.0.2
   ingress:
