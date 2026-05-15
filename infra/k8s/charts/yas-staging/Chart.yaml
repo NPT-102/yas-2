@@ -9,63 +9,105 @@ dependencies:
   - name: yas-configuration
     version: 0.4.0
     repository: file://../yas-configuration
+    tags:
+      - core
   - name: cart
     version: 0.2.0
     repository: file://../cart
+    tags:
+      - core
   - name: customer
     version: 0.1.0
     repository: file://../customer
+    tags:
+      - core
   - name: inventory
     version: 0.1.0
     repository: file://../inventory
+    tags:
+      - core
   - name: location
     version: 0.1.0
     repository: file://../location
+    tags:
+      - optional
   - name: media
     version: 0.1.0
     repository: file://../media
+    tags:
+      - core
   - name: order
     version: 0.2.0
     repository: file://../order
+    tags:
+      - core
   - name: payment
     version: 0.2.0
     repository: file://../payment
+    tags:
+      - optional
   - name: payment-paypal
     version: 0.2.0
     repository: file://../payment-paypal
+    tags:
+      - optional
   - name: product
     version: 0.1.0
     repository: file://../product
+    tags:
+      - core
   - name: promotion
     version: 0.1.0
     repository: file://../promotion
+    tags:
+      - optional
   - name: rating
     version: 0.1.0
     repository: file://../rating
+    tags:
+      - optional
   - name: recommendation
     version: 0.1.0
     repository: file://../recommendation
+    tags:
+      - optional
   - name: search
     version: 0.1.0
     repository: file://../search
+    tags:
+      - core
   - name: tax
     version: 0.1.0
     repository: file://../tax
+    tags:
+      - core
   - name: webhook
     version: 0.1.0
     repository: file://../webhook
+    tags:
+      - optional
   - name: sampledata
     version: 0.1.0
     repository: file://../sampledata
+    tags:
+      - optional
   - name: backoffice-bff
     version: 0.1.0
     repository: file://../backoffice-bff
+    tags:
+      - core
   - name: storefront-bff
     version: 0.1.0
     repository: file://../storefront-bff
+    tags:
+      - core
   - name: backoffice-ui
     version: 0.1.0
     repository: file://../backoffice-ui
+    tags:
+      - core
   - name: storefront-ui
     version: 0.1.0
     repository: file://../storefront-ui
+    tags:
+      - core

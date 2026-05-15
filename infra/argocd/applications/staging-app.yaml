@@ -18,7 +18,6 @@ spec:
       valueFiles:
         - values.yaml
         - values-staging.yaml
-        - values-minimal.yaml
   destination:
     server: https://kubernetes.default.svc
     namespace: staging

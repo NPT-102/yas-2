@@ -1,6 +1,10 @@
 # Umbrella values for YAS Dev environment
 # Each key matches a dependency name in Chart.yaml
 
+tags:
+  core: true
+  optional: false
+
 cart:
   backend:
     replicaCount: 1
