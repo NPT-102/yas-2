@@ -211,20 +211,31 @@ jobs:
 
       - name: Print service NodePort endpoints
         run: |
-          WORKER_IP=$(kubectl get nodes -l '!node-role.kubernetes.io/control-plane' \
-            -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null || \
-            kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
           echo "================================================"
           echo " Developer namespace: ${{ env.NAMESPACE }}"
-          echo " Worker node IP:      $WORKER_IP"
-          echo " Add the following to your /etc/hosts file:"
-          echo "   $WORKER_IP  <service>.${{ env.NAMESPACE }}.local"
           echo "================================================"
-          echo "Service NodePort endpoints:"
+          echo "Service NodePort endpoints (Dynamic Discovery):"
           for svc in product cart customer backoffice-bff inventory media order \
                      search storefront-bff tax backoffice-ui storefront-ui swagger-ui; do
             PORT=$(kubectl get svc "$svc" -n ${{ env.NAMESPACE }} \
               -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo 'N/A')
-            echo "  $svc  ->  $WORKER_IP:$PORT"
+            
+            # Find the node where the pod is actually scheduled
+            NODE_NAME=$(kubectl get pods -n ${{ env.NAMESPACE }} -l "app.kubernetes.io/name=$svc" \
+              -o jsonpath='{.items[0].spec.nodeName}' 2>/dev/null)
+            
+            if [ -n "$NODE_NAME" ]; then
+              # Resolve the IP of that specific node
+              NODE_IP=$(kubectl get node "$NODE_NAME" \
+                -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null || echo "Unknown")
+            else
+              NODE_IP="Pending/Unknown"
+            fi
+            
+            echo "  $svc  ->  $NODE_IP:$PORT"
           done
           echo "================================================"
+          echo "Note: If a service shows multiple nodes, any node IP + NodePort will work,"
+          echo "but use the specific IP above if you have cross-node networking issues."
+          echo "================================================"
+
