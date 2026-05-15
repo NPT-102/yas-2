@@ -38,11 +38,19 @@ on:
       tax_branch:
         required: false
         default: 'main'
+      storefront_ui_branch:
+        required: false
+        default: 'main'
+      backoffice_ui_branch:
+        required: false
+        default: 'main'
 
 env:
   NAMESPACE: 'dev-${{ github.event.inputs.developer_name }}'
+  REGISTRY: ${{ secrets.DOCKER_USER }}
 
 jobs:
+
   setup-namespace:
     runs-on: self-hosted
     defaults:
@@ -74,6 +82,7 @@ jobs:
   deploy-core-services:
     needs: deploy-infrastructure
     runs-on: self-hosted
+
     defaults:
       run:
         shell: bash
@@ -140,14 +149,18 @@ jobs:
           deploy_service "tax"            "$(get_tag '${{ github.event.inputs.tax_branch }}')"
 
           echo "Deploying UI services..."
+          TAG_BO_UI=$(get_tag '${{ github.event.inputs.backoffice_ui_branch }}')
           helm upgrade --install "backoffice-ui" "./infra/k8s/charts/backoffice-ui" \
             --namespace ${{ env.NAMESPACE }} \
+            --set ui.image.tag="$TAG_BO_UI" \
             --set ui.service.type=NodePort \
             --set ui.ingress.enabled=false \
             --set global.namespace=${{ env.NAMESPACE }}
 
+          TAG_SF_UI=$(get_tag '${{ github.event.inputs.storefront_ui_branch }}')
           helm upgrade --install "storefront-ui" "./infra/k8s/charts/storefront-ui" \
             --namespace ${{ env.NAMESPACE }} \
+            --set ui.image.tag="$TAG_SF_UI" \
             --set ui.service.type=NodePort \
             --set ui.ingress.enabled=false \
             --set global.namespace=${{ env.NAMESPACE }}
@@ -238,4 +251,3 @@ jobs:
           echo "Note: If a service shows multiple nodes, any node IP + NodePort will work,"
           echo "but use the specific IP above if you have cross-node networking issues."
           echo "================================================"
-

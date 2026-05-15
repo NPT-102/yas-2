@@ -1,0 +1,20 @@
+# .github/workflows/ci-storefront-ui.yaml
+name: CI - Storefront UI
+
+on:
+  push:
+    branches:
+      - '**'
+    paths:
+      - 'storefront/**'
+      - '!storefront/**.md'
+  workflow_dispatch:
+
+jobs:
+  build-and-push:
+    uses: ./.github/workflows/ci-ui-build-push.yaml
+    with:
+      service_name: storefront
+    secrets:
+      DOCKER_USER: ${{ secrets.DOCKER_USER }}
+      DOCKER_PASS: ${{ secrets.DOCKER_PASS }}

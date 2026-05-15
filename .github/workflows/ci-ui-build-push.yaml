@@ -1,0 +1,52 @@
+# .github/workflows/ci-ui-build-push.yaml
+# Reusable workflow: build and push UI image (Next.js)
+name: Reusable CI - Build and Push UI
+
+on:
+  workflow_call:
+    inputs:
+      service_name:
+        required: true
+        type: string
+        description: "Service name (e.g., backoffice, storefront)"
+    secrets:
+      DOCKER_USER:
+        required: true
+      DOCKER_PASS:
+        required: true
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get commit short SHA
+        id: vars
+        run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USER }}
+          password: ${{ secrets.DOCKER_PASS }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./${{ inputs.service_name }}
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_USER }}/yas-k3s-${{ inputs.service_name }}-ui:${{ steps.vars.outputs.sha_short }}
+            ${{ secrets.DOCKER_USER }}/yas-k3s-${{ inputs.service_name }}-ui:latest
+          cache-from: type=registry,ref=${{ secrets.DOCKER_USER }}/yas-k3s-${{ inputs.service_name }}-ui:buildcache
+          cache-to: type=registry,ref=${{ secrets.DOCKER_USER }}/yas-k3s-${{ inputs.service_name }}-ui:buildcache,mode=max
+
+      - name: Print image info
+        run: |
+          echo "UI Image pushed successfully"
+          echo "Image: ${{ secrets.DOCKER_USER }}/yas-k3s-${{ inputs.service_name }}-ui:${{ steps.vars.outputs.sha_short }}"

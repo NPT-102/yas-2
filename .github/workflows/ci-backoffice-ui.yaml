@@ -1,0 +1,20 @@
+# .github/workflows/ci-backoffice-ui.yaml
+name: CI - Backoffice UI
+
+on:
+  push:
+    branches:
+      - '**'
+    paths:
+      - 'backoffice/**'
+      - '!backoffice/**.md'
+  workflow_dispatch:
+
+jobs:
+  build-and-push:
+    uses: ./.github/workflows/ci-ui-build-push.yaml
+    with:
+      service_name: backoffice
+    secrets:
+      DOCKER_USER: ${{ secrets.DOCKER_USER }}
+      DOCKER_PASS: ${{ secrets.DOCKER_PASS }}
