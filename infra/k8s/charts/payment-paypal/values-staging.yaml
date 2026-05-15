@@ -1,5 +1,0 @@
-# Staging environment overrides
-backend:
-  replicaCount: 1
-  image:
-    tag: v1.0.2

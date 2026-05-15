@@ -82,8 +82,6 @@ applicationConfig:
       location: http://location/location
       media: http://media/media
       order: http://order/order
-      payment: http://payment/payment
-      payment-paypal: http://payment-paypal/payment-paypal
       product: http://product/product
       promotion: http://promotion/promotion
       rating: http://rating/rating
