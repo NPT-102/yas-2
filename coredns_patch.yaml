@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coredns
+  namespace: kube-system
+data:
+  NodeHosts: |
+    10.43.113.74 identity.yas.local.com
+    172.16.0.240 api.yas.local.com
+    172.16.0.240 dev.yas.local.com
+    172.16.0.240 backoffice.dev.yas.local.com
+    172.16.0.240 fedora
+    172.16.1.170 quoctan QuocTan
