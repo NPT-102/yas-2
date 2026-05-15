@@ -2,7 +2,7 @@
 ui:
   replicaCount: 1
   image:
-    tag: v1.0.0
+    tag: latest
   extraEnvs:
     - name: API_BASE_PATH
       value: http://staging.yas.local.com/api
