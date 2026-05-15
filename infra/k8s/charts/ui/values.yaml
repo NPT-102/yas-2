@@ -89,14 +89,14 @@ tolerations: []
 affinity:
   nodeAffinity:
     preferredDuringSchedulingIgnoredDuringExecution:
-      - weight: 85
+      - weight: 70
         preference:
           matchExpressions:
             - key: kubernetes.io/hostname
               operator: In
               values:
                 - fedora
-      - weight: 15
+      - weight: 30
         preference:
           matchExpressions:
             - key: kubernetes.io/hostname
