@@ -152,6 +152,7 @@ jobs:
           TAG_BO_UI=$(get_tag '${{ github.event.inputs.backoffice_ui_branch }}')
           helm upgrade --install "backoffice-ui" "./infra/k8s/charts/backoffice-ui" \
             --namespace ${{ env.NAMESPACE }} \
+            --set ui.image.repository="${{ secrets.DOCKER_USER }}/yas-k3s-backoffice-ui" \
             --set ui.image.tag="$TAG_BO_UI" \
             --set ui.service.type=NodePort \
             --set ui.ingress.enabled=false \
@@ -160,6 +161,7 @@ jobs:
           TAG_SF_UI=$(get_tag '${{ github.event.inputs.storefront_ui_branch }}')
           helm upgrade --install "storefront-ui" "./infra/k8s/charts/storefront-ui" \
             --namespace ${{ env.NAMESPACE }} \
+            --set ui.image.repository="${{ secrets.DOCKER_USER }}/yas-k3s-storefront-ui" \
             --set ui.image.tag="$TAG_SF_UI" \
             --set ui.service.type=NodePort \
             --set ui.ingress.enabled=false \

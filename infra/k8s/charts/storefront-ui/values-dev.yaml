@@ -1,6 +1,6 @@
 # Dev environment overrides
 ui:
-  replicaCount: 0
+  replicaCount: 1
   image:
     tag: latest
   extraEnvs:

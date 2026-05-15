@@ -60,21 +60,6 @@ spec:
     - source:
         principals: ["cluster.local/ns/yas/sa/order"]
 
----
-apiVersion: security.istio.io/v1beta1
-kind: AuthorizationPolicy
-metadata:
-  name: allow-order-to-payment
-  namespace: yas
-spec:
-  selector:
-    matchLabels:
-      app.kubernetes.io/name: payment
-  action: ALLOW
-  rules:
-  - from:
-    - source:
-        principals: ["cluster.local/ns/yas/sa/order"]
 
 ---
 apiVersion: security.istio.io/v1beta1
@@ -123,23 +108,6 @@ spec:
   - from:
     - source:
         principals: ["cluster.local/ns/yas/sa/order"]
-
----
-# Cho phép payment gọi đến payment-paypal
-apiVersion: security.istio.io/v1beta1
-kind: AuthorizationPolicy
-metadata:
-  name: allow-payment-to-paypal
-  namespace: yas
-spec:
-  selector:
-    matchLabels:
-      app.kubernetes.io/name: payment-paypal
-  action: ALLOW
-  rules:
-  - from:
-    - source:
-        principals: ["cluster.local/ns/yas/sa/payment"]
 
 ---
 # Cho phép search gọi đến product
