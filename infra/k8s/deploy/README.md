@@ -40,9 +40,9 @@ minikube addons enable ingress
 ./setup-cluster.sh
 ```
 - Verify all servers run successful on namespaces: `postgres`, `elasticsearch`, `kafka`, `keycloak`
-- After all above servers are running status, execute  [deploy-yas-applications.sh](deploy-yas-applications.sh) file to deploy all of yas applications to `yas` namespace
+- After all above servers are running status, execute  [deploy-yas-applications.sh](deploy-yas-applications.sh) file to deploy the 13 core services and service mesh policies to `yas` namespace
 ```shell
-./deploy-yas-applications
+./deploy-yas-applications.sh
 ```
 All of YAS microservice deployed in `yas` namespace
 - Setup hosts file

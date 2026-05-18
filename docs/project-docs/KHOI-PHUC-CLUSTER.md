@@ -749,11 +749,11 @@ kubectl get secret -n yas --no-headers | wc -l  # Phải > 5
 ```
 
 ```bash
-# 9b. Deploy tất cả microservices
+# 9b. Deploy 13 core services + mesh
 ./deploy-yas-applications.sh
 ```
 
-> ⏱ **Mất ~20-30 phút** (deploy lần lượt, mỗi service cách 60 giây).
+> ⏱ **Mất ~15-20 phút** (deploy core services rồi áp dụng mesh policies/addons).
 > 
 > **Theo dõi tiến trình (terminal khác):**
 > ```bash

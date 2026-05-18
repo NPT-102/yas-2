@@ -11,20 +11,20 @@ Ban đầu đồ án được thực hiện trên Minikube. Sau quá trình tri�
 chuyển sang \textbf{K3s v1.32.5} vì các lợi thế vượt trội:
 
 \begin{table}[H]
-  \centering
-  \caption{So sánh Minikube và K3s}
-  \begin{tabularx}{\textwidth}{L{4cm}L{4.5cm}L{4.5cm}}
-    \toprule
-    \textbf{Tiêu chí} & \textbf{Minikube} & \textbf{K3s} \\
-    \midrule
-    Cơ chế chạy & Docker container (Docker-in-Docker) & Systemd service (native process) \\
-    RAM overhead & $\sim$2--3 GB & $\sim$512 MB \\
-    Port 80/443 & Cần \texttt{minikube tunnel} & Tự động (klipper-lb) \\
-    Auto-start sau reboot & Không & Có (\texttt{systemctl enable k3s}) \\
-    inotify (Promtail, Kafka) & Phải set lại sau restart & Persist trong \texttt{/etc/sysctl.d/} \\
-    Worker node & Docker container giả lập & Máy thật (VM/máy khác) \\
-    \bottomrule
-  \end{tabularx}
+	\centering
+	\caption{So sánh Minikube và K3s}
+	\begin{tabularx}{\textwidth}{L{4cm}L{4.5cm}L{4.5cm}}
+		\toprule
+		\textbf{Tiêu chí}         & \textbf{Minikube}                   & \textbf{K3s}                          \\
+		\midrule
+		Cơ chế chạy               & Docker container (Docker-in-Docker) & Systemd service (native process)      \\
+		RAM overhead              & $\sim$2--3 GB                       & $\sim$512 MB                          \\
+		Port 80/443               & Cần \texttt{minikube tunnel}        & Tự động (klipper-lb)                  \\
+		Auto-start sau reboot     & Không                               & Có (\texttt{systemctl enable k3s})    \\
+		inotify (Promtail, Kafka) & Phải set lại sau restart            & Persist trong \texttt{/etc/sysctl.d/} \\
+		Worker node               & Docker container giả lập            & Máy thật (VM/máy khác)                \\
+		\bottomrule
+	\end{tabularx}
 \end{table}
 
 \subsection{Cài đặt K3s}
@@ -47,8 +47,8 @@ kubectl get nodes
 \end{lstlisting}
 
 \begin{warnbox}[Lưu ý quan trọng về version]
-Không dùng K3s v1.35.x — có bug \texttt{cloud-controller-manager} exit ngay khi gặp 403 Forbidden
-lúc bootstrap RBAC (race condition), khiến K3s crash loop vĩnh viễn. Dùng v1.32.5 (LTS stable).
+	Không dùng K3s v1.35.x — có bug \texttt{cloud-controller-manager} exit ngay khi gặp 403 Forbidden
+	lúc bootstrap RBAC (race condition), khiến K3s crash loop vĩnh viễn. Dùng v1.32.5 (LTS stable).
 \end{warnbox}
 
 \subsection{Cài Ingress NGINX và cấu hình inotify}
@@ -100,17 +100,17 @@ kubectl get nodes
 Ba secrets bắt buộc cần cấu hình trong GitHub repository:
 
 \begin{table}[H]
-  \centering
-  \caption{GitHub Secrets}
-  \begin{tabularx}{\textwidth}{L{3.5cm}X}
-    \toprule
-    \textbf{Secret} & \textbf{Mô tả} \\
-    \midrule
-    \texttt{DOCKER\_USER} & Username Docker Hub — dùng để đặt tên image và login \\
-    \texttt{DOCKER\_PASS} & Access Token Docker Hub — dùng để push image \\
-    \texttt{KUBE\_CONFIG} & Kubeconfig base64 — dùng để kubectl deploy lên K3s \\
-    \bottomrule
-  \end{tabularx}
+	\centering
+	\caption{GitHub Secrets}
+	\begin{tabularx}{\textwidth}{L{3.5cm}X}
+		\toprule
+		\textbf{Secret}       & \textbf{Mô tả}                                       \\
+		\midrule
+		\texttt{DOCKER\_USER} & Username Docker Hub — dùng để đặt tên image và login \\
+		\texttt{DOCKER\_PASS} & Access Token Docker Hub — dùng để push image         \\
+		\texttt{KUBE\_CONFIG} & Kubeconfig base64 — dùng để kubectl deploy lên K3s   \\
+		\bottomrule
+	\end{tabularx}
 \end{table}
 
 \begin{lstlisting}[style=bashstyle, caption=Lấy KUBE\_CONFIG cho K3s]
@@ -142,12 +142,12 @@ File: \texttt{.github/workflows/npt-ci.yml}
 
 \textbf{Luồng hoạt động:}
 \begin{enumerate}
-  \item Trigger: push lên bất kỳ branch nào (\texttt{branches: '**'})
-  \item \textbf{Job detect-changes}: So sánh \texttt{git diff} để phát hiện service nào thay đổi
-  \item \textbf{Job build-java}: Chạy \texttt{mvn clean install}, build Docker image, push lên Docker Hub
-        với tag = 7 ký tự đầu commit SHA
-  \item \textbf{Job build-frontend}: Build Next.js qua multi-stage Dockerfile, push image
-  \item Nếu push vào \texttt{main}: tag thêm \texttt{:latest}
+	\item Trigger: push lên bất kỳ branch nào (\texttt{branches: '**'})
+	\item \textbf{Job detect-changes}: So sánh \texttt{git diff} để phát hiện service nào thay đổi
+	\item \textbf{Job build-java}: Chạy \texttt{mvn clean install}, build Docker image, push lên Docker Hub
+	      với tag = 7 ký tự đầu commit SHA
+	\item \textbf{Job build-frontend}: Build Next.js qua multi-stage Dockerfile, push image
+	\item Nếu push vào \texttt{main}: tag thêm \texttt{:latest}
 \end{enumerate}
 
 \begin{lstlisting}[style=yamlstyle, caption=CI workflow — detect changes và build (trích)]
@@ -200,20 +200,20 @@ File: \texttt{.github/workflows/npt-developer\_build.yml}
 
 Developer kích hoạt thủ công qua \texttt{workflow\_dispatch}, nhập:
 \begin{itemize}
-  \item \texttt{service\_name}: service muốn test (dropdown list)
-  \item \texttt{branch\_name}: tên branch đang phát triển
+	\item \texttt{service\_name}: service muốn test (dropdown list)
+	\item \texttt{branch\_name}: tên branch đang phát triển
 \end{itemize}
 
 \textbf{Luồng hoạt động:}
 \begin{enumerate}
-  \item Lấy commit SHA cuối của branch được chọn
-  \item Checkout code của branch đó \textrightarrow{} build + push image với tag = SHA
-  \item Deploy tất cả service vào namespace \texttt{developer}:
-        \begin{itemize}
-          \item Service được chọn: dùng image mới build, expose qua NodePort
-          \item Các service còn lại: dùng image \texttt{:latest}
-        \end{itemize}
-  \item In ra GitHub Step Summary: NodePort, Worker IP, hướng dẫn \texttt{/etc/hosts}
+	\item Lấy commit SHA cuối của branch được chọn
+	\item Checkout code của branch đó \textrightarrow{} build + push image với tag = SHA
+	\item Deploy tất cả service vào namespace \texttt{developer}:
+	      \begin{itemize}
+		      \item Service được chọn: dùng image mới build, expose qua NodePort
+		      \item Các service còn lại: dùng image \texttt{:latest}
+	      \end{itemize}
+	\item In ra GitHub Step Summary: NodePort, Worker IP, hướng dẫn \texttt{/etc/hosts}
 \end{enumerate}
 
 \begin{lstlisting}[style=yamlstyle, caption=Developer build — deploy service với custom image (trích)]
@@ -452,9 +452,9 @@ vào namespace \texttt{yas} \textrightarrow{} sidecar từ chối (STRICT mode) 
 
 \textbf{Giải pháp 3 bước:}
 \begin{enumerate}
-  \item Inject sidecar vào \texttt{ingress-nginx} (label namespace + restart pod)
-  \item Export DestinationRule sang namespace \texttt{ingress-nginx}
-  \item Thêm annotation vào Ingress để proxy theo service identity (không theo Pod IP):
+	\item Inject sidecar vào \texttt{ingress-nginx} (label namespace + restart pod)
+	\item Export DestinationRule sang namespace \texttt{ingress-nginx}
+	\item Thêm annotation vào Ingress để proxy theo service identity (không theo Pod IP):
 \end{enumerate}
 
 \begin{lstlisting}[style=yamlstyle, caption=Annotation Ingress để ingress-nginx dùng service identity]
@@ -481,7 +481,7 @@ cd k8s/deploy
 ./setup-keycloak.sh   # ~5 phut
 ./setup-redis.sh      # ~1 phut
 ./deploy-yas-configuration.sh  # ConfigMaps + Secrets
-./deploy-yas-minimal.sh        # Deploy microservices
+./deploy-yas-applications.sh   # Deploy core services + mesh
 \end{lstlisting}
 
 \subsection{Cấu hình CoreDNS cho hostname nội bộ}

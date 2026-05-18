@@ -615,14 +615,14 @@ Phải thấy các ConfigMap như: `application`, `backoffice-bff`, `storefront-
 
 ## Bước 15: Deploy YAS Applications
 
-Deploy tất cả 21 microservices. Script deploy lần lượt, mỗi service cách 60 giây:
+Deploy 13 core services + service mesh. Script deploy lần lượt, mỗi service cách 60 giây:
 
 ```bash
 cd /home/npt102/gcp/Devops2/yas/k8s/deploy
 ./deploy-yas-applications.sh
 ```
 
-> ⏱ **Mất ~25-30 phút.** Script deploy theo thứ tự:
+> ⏱ **Mất ~15-20 phút.** Script deploy theo thứ tự:
 > 1. backoffice-bff + backoffice-ui (chờ 60s)
 > 2. storefront-bff + storefront-ui (chờ 60s)
 > 3. swagger-ui (chờ 20s)
@@ -1102,7 +1102,7 @@ Vào https://github.com/NPT-102/yas-2/settings/actions/runners
 11. Import realm-export.json                     ← Keycloak realm
 12. ./setup-redis.sh                             ← Redis
 13. ./deploy-yas-configuration.sh                ← ConfigMaps + Secrets
-14. ./deploy-yas-applications.sh                 ← 21 services (~25 phút)
+14. ./deploy-yas-applications.sh                 ← 13 core services + mesh (~15-20 phút)
 15. Sửa /etc/hosts                               ← Domain mapping
 16. Kiểm tra                                     ← Verify
 17. (Tùy chọn) istioctl install -f overlay  ← Istio + limits

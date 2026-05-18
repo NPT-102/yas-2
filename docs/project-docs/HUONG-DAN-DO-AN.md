@@ -937,20 +937,20 @@ kubectl get configmaps -n yas
 kubectl get secrets -n yas
 ```
 
-#### 3.6 Deploy tất cả microservices
+#### 3.6 Deploy 13 core services + mesh
 
 ```bash
 cd k8s/deploy
 ./deploy-yas-applications.sh
 ```
 
-Script này deploy lần lượt (mỗi service cách nhau 60s để chờ startup):
+Script này deploy lần lượt (mỗi service cách nhau 60s để chờ startup) và sau đó áp dụng mesh policies/addons:
 1. `backoffice-bff` + `backoffice-ui`
 2. `storefront-bff` + `storefront-ui`
 3. `swagger-ui`
-4. 16 backend services: cart, customer, inventory, location, media, order, payment, payment-paypal, product, promotion, rating, search, tax, recommendation, webhook, sampledata
+4. 8 backend services: product, cart, order, customer, inventory, tax, media, search
 
-> ⏱ **Mất khoảng 20-30 phút.**
+> ⏱ **Mất khoảng 15-20 phút.**
 
 ```bash
 # Theo dõi tiến trình
@@ -1009,7 +1009,7 @@ kubectl get pods -n redis       # Kiểm tra
 kubectl get cm,secret -n yas    # Kiểm tra
 
 # 5. Microservices
-./deploy-yas-applications.sh    # ~25 phút
+./deploy-yas-applications.sh    # ~15-20 phút
 kubectl get pods -n yas         # Kiểm tra
 ```
 

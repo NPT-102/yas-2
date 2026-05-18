@@ -73,7 +73,7 @@ YAS is a pet project aim to practice building a typical microservice application
 
 ## Deploy to Kubernetes
 
-All deployment scripts are located in `k8s/deploy`. To automatically set up the complete cluster (including required Istio sidecars, Kafka configurations, and inotify limits for Minikube), simply run:
+All deployment scripts are located in `k8s/deploy`. To automatically set up the core YAS stack and mesh policies (including Istio sidecars, Kiali, Prometheus/Grafana, Kafka configurations, and inotify limits for Minikube), simply run:
 ```bash
 cd k8s/deploy
 ./setup-cluster.sh

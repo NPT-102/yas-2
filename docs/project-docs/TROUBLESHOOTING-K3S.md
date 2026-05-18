@@ -121,11 +121,11 @@ File đã sửa: `k8s/deploy/kafka/kafka-cluster/templates/debezium-connect-clus
 
 ---
 
-## Vấn đề 4: deploy-yas-minimal.sh bị treo chờ Keycloak (DNS chưa set)
+## Vấn đề 4: deploy-yas-applications.sh bị treo chờ Keycloak (DNS chưa set)
 
 ### Triệu chứng
 
-Script `deploy-yas-minimal.sh` in ra:
+Script `deploy-yas-applications.sh` in ra:
 
 ```
 Waiting for Keycloak realm 'Yas' to be ready...
@@ -139,7 +139,7 @@ Script curl `http://identity.yas.local.com/realms/Yas/.well-known/openid-configu
 
 ### Cách khắc phục
 
-Phải **update `/etc/hosts` trước khi chạy `deploy-yas-minimal.sh`**:
+Phải **update `/etc/hosts` trước khi chạy `deploy-yas-applications.sh`**:
 
 ```bash
 sudo tee -a /etc/hosts <<'EOF'
@@ -159,7 +159,7 @@ sudo tee -a /etc/hosts <<'EOF'
 EOF
 ```
 
-> **Lưu ý cho hướng dẫn CHUYEN-SANG-K3S.md:** Bước 12 (cấu hình `/etc/hosts`) nên được thực hiện **trước** Bước 11 (deploy-yas-minimal.sh).
+> **Lưu ý cho hướng dẫn CHUYEN-SANG-K3S.md:** Bước 12 (cấu hình `/etc/hosts`) nên được thực hiện **trước** Bước 11 (deploy-yas-applications.sh).
 
 ---
 
@@ -196,7 +196,7 @@ Không cần dùng `es-standalone.yaml` trên K3s. `setup-cluster.sh` cài ECK +
 5. Chạy setup-keycloak.sh
 6. Chạy setup-redis.sh
 7. Chạy deploy-yas-configuration.sh
-8. Chạy deploy-yas-minimal.sh  ← /etc/hosts đã có, sẽ không bị treo
+8. Chạy deploy-yas-applications.sh  ← /etc/hosts đã có, sẽ không bị treo
 ```
 
 ---
@@ -208,5 +208,5 @@ Không cần dùng `es-standalone.yaml` trên K3s. `setup-cluster.sh` cài ECK +
 | 1 | Kafka CRD not found (lần 1) | Race condition: chart deploy trước khi CRDs ready | Chờ operator pod Running, re-deploy |
 | 2 | Kafka API v1beta2 not found | Strimzi 1.0.0 đổi sang v1 | `sed` đổi apiVersion trong chart templates |
 | 3 | KafkaConnect missing required fields | Strimzi 1.0.0 yêu cầu thêm top-level spec fields | Thêm `groupId`, `*StorageTopic` vào spec |
-| 4 | deploy-yas-minimal.sh treo | `/etc/hosts` chưa có domain | Update hosts trước khi deploy |
+| 4 | deploy-yas-applications.sh treo | `/etc/hosts` chưa có domain | Update hosts trước khi deploy |
 | 5 | ECK + ES 9.x | Không phải vấn đề trên K3s | Không cần xử lý |

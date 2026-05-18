@@ -123,11 +123,13 @@ sudo chown $USER:$USER ~/.kube/config
 chmod 600 ~/.kube/config
 
 # Kiểm tra
+kubectl config current-context
+kubectl config view --minify --raw | grep server
 kubectl cluster-info
-# → Kubernetes control plane is running at https://127.0.0.1:6443
+# → Kubernetes control plane is running at https://172.16.0.240:6443
 ```
 
-> **Lưu ý:** Khác với Minikube (`192.168.49.2`), K3s luôn dùng `127.0.0.1:6443` → ổn định qua reboot.
+> **Lưu ý:** Khác với Minikube (`192.168.49.2`), K3s thường dùng `127.0.0.1:6443` khi chạy local. Trên máy này kubeconfig hiện đang trỏ tới `https://172.16.0.240:6443`, nên nếu bạn dựng lại cluster mới thì hãy ghi lại đúng IP của control-plane và thay lại endpoint trong `~/.kube/config` khi cần.
 
 ---
 
@@ -480,10 +482,10 @@ cd /home/npt102/gcp/Devops2/yas/k8s/deploy
 # Deploy ConfigMaps + Secrets
 ./deploy-yas-configuration.sh
 
-# Deploy tất cả services (hoặc dùng minimal để nhanh hơn)
-./deploy-yas-minimal.sh
+# Deploy 13 core services (hoặc dùng full stack nếu cần)
+./deploy-yas-applications.sh
 # Hoặc đầy đủ:
-# ./deploy-yas-applications.sh
+# Deploy YAS core stack + mesh policies
 ```
 
 ---

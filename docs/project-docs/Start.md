@@ -22,7 +22,7 @@
 12. [Cài Redis](#12-cài-redis)
 13. [Cập nhật CoreDNS](#13-cập-nhật-coredns)
 14. [Deploy YAS Configuration](#14-deploy-yas-configuration)
-15. [Deploy YAS Services (Minimal)](#15-deploy-yas-services-minimal)
+15. [Deploy YAS Core Services](#15-deploy-yas-core-services)
 16. [Cài Istio + Apply policies](#16-cài-istio--apply-policies)
 17. [Cài ArgoCD](#17-cài-argocd)
 18. [Kiểm tra tổng thể](#18-kiểm-tra-tổng-thể)
@@ -118,10 +118,14 @@ chmod 600 ~/.kube/config
 
 **Kiểm tra:**
 ```bash
+kubectl config current-context
+kubectl config view --minify --raw | grep server
 kubectl cluster-info
-# Kubernetes control plane is running at https://127.0.0.1:6443
-# CoreDNS is running at https://127.0.0.1:6443/api/v1/namespaces/kube-system/services/kube-dns:dns/proxy
+# Kubernetes control plane is running at https://172.16.0.240:6443
+# CoreDNS là proxy service nội bộ của cluster; endpoint sẽ đổi theo IP kubeconfig thực tế
 ```
+
+> **Lưu ý:** Nếu kubeconfig được sinh từ K3s local, endpoint thường là `127.0.0.1:6443`. Trên máy này hiện đang dùng `https://172.16.0.240:6443`, nên khi dựng lại cluster mới hãy cập nhật đúng IP control-plane trước khi ghi vào docs hoặc hosts file.
 
 ---
 
@@ -175,7 +179,7 @@ kubectl get svc -n ingress-nginx
 
 ## 6. Cấu hình /etc/hosts — làm SỚM
 
-> ⚠️ **Phải làm trước bước 15 (deploy-yas-minimal.sh)**. Script đó curl `identity.yas.local.com` để chờ Keycloak ready — nếu `/etc/hosts` chưa có thì script treo mãi không thoát.
+> ⚠️ **Phải làm trước bước 15 (deploy-yas-applications.sh)**. Script đó curl `identity.yas.local.com` để chờ Keycloak ready — nếu `/etc/hosts` chưa có thì script treo mãi không thoát.
 
 ```bash
 sudo tee -a /etc/hosts <<'EOF'
@@ -501,7 +505,7 @@ kubectl get secret -n yas | grep -v "kubernetes.io/service-account"
 
 ---
 
-## 15. Deploy YAS Services (Minimal)
+## 15. Deploy YAS Core Services
 
 Deploy 13 services thiết yếu, bỏ: location, payment, payment-paypal, promotion, rating, recommendation, webhook, sampledata.
 
@@ -509,12 +513,14 @@ Deploy 13 services thiết yếu, bỏ: location, payment, payment-paypal, promo
 
 ```bash
 cd /home/npt102/gcp/Devops2/yas/k8s/deploy
-bash deploy-yas-minimal.sh
+bash deploy-yas-applications.sh
 ```
 
 Script deploy theo thứ tự: backoffice-bff → backoffice-ui → storefront-bff → storefront-ui → swagger-ui → 8 backend services (product, cart, order, customer, inventory, tax, media, search).
 
-**Theo dõi (~10-15 phút):**
+Script này cũng label namespace và cài mesh addons/policies (mTLS STRICT, AuthorizationPolicy, DestinationRule, VirtualService retry, Kiali, Prometheus, Grafana).
+
+**Theo dõi (~15-20 phút):**
 ```bash
 watch kubectl get pods -n yas
 ```
@@ -535,11 +541,19 @@ NAME                            READY   STATUS    RESTARTS
 backoffice-bff-xxx              2/2     Running   0   ← 2/2 = app + istio-proxy
 ```
 
+**Kiểm thử sau deploy:**
+```bash
+node infra/scripts/verify-yas-stack.js
+node infra/scripts/smoke-yas-http.js
+```
+
 ---
 
 ## 16. Cài Istio + Apply policies
 
 `setup-cluster.sh` đã cài Istio istiod. Bước này label namespace và apply policies.
+
+> Lưu ý: `deploy-yas-applications.sh` đã làm sẵn phần này. Chạy thủ công chỉ khi cần re-apply hoặc debug mesh.
 
 ### 16.1 Verify Istio istiod đang chạy
 
@@ -588,7 +602,7 @@ kubectl get peerauthentication -n yas
 # default   STRICT   ...
 
 kubectl get destinationrule -n yas | wc -l
-# 22  (header + 21 services)
+# 14  (header + 13 core services)
 
 kubectl get authorizationpolicy -n yas
 # NAME           ACTION   AGE
@@ -726,7 +740,7 @@ kubectl get applications -n argocd -o wide | grep -v Synced
 
 ## 19. Troubleshooting
 
-### 19.1 deploy-yas-minimal.sh treo chờ Keycloak
+### 19.1 deploy-yas-applications.sh treo chờ Keycloak
 
 **Triệu chứng:** Script in `Waiting for Keycloak realm 'Yas' to be ready...` rồi không tiến tiếp.
 
@@ -860,7 +874,7 @@ Bước 3   /etc/rancher/k3s/config.yaml (flannel-backend: host-gw)
 Bước 4   kubeconfig ~/.kube/config
 Bước 5   inotify limits
 Bước 6   ingress-nginx
-Bước 7   /etc/hosts  ← PHẢI LÀM TRƯỚC deploy-yas-minimal.sh
+Bước 7   /etc/hosts  ← PHẢI LÀM TRƯỚC deploy-yas-applications.sh
 Bước 8   (Optional) Worker node quoctan + firewall
 Bước 9   helm dependency build k8s/charts/*/
 Bước 10  cd k8s/deploy && bash setup-cluster.sh
@@ -869,7 +883,7 @@ Bước 12  bash setup-keycloak.sh
 Bước 13  bash setup-redis.sh
 Bước 14  CoreDNS patch (identity → Keycloak ClusterIP)
 Bước 15  bash deploy-yas-configuration.sh
-Bước 16  bash deploy-yas-minimal.sh
+Bước 16  bash deploy-yas-applications.sh
 Bước 17  Istio: label ns + apply policies
 Bước 18  ArgoCD + ApplicationSets
 ```

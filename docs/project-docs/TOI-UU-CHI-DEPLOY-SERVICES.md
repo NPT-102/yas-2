@@ -1,108 +1,60 @@
-# Tối Ưu Hóa: Chỉ Deploy Services Cần Thiết
+# Backlog Sửa Hệ Thống YAS
 
-## Phân Tích Yêu Cầu Đồ Án (Hướng Nâng Cao)
+## Mục Tiêu
 
-Theo file `Project02_2026.pdf`, đồ án yêu cầu:
+- Chạy ổn định trên cluster mới trong WSL/K3s.
+- Chỉ deploy 13 service cốt lõi cho demo.
+- Có service mesh đầy đủ theo yêu cầu đồ án.
+- Có observability đầy đủ với Prometheus và Grafana, kèm Loki/Tempo/OTel nếu hạ tầng cho phép.
+- Có script kiểm thử tự động để xác nhận cấu hình sau mỗi lần dựng lại.
 
-| # | Yêu cầu | Điểm | Trạng thái |
-|---|---------|------|-----------|
-| 1 | K8S cluster (1 Master + 1 Worker) | 6đ (cơ bản) | ✅ Đã có |
-| 2 | CI: Build image với tag = commit ID, push Docker Hub | 6đ | ✅ GitHub Actions |
-| 3 | CD: Job `developer_build` (input branch → deploy) | 6đ | ✅ |
-| 4 | Job xóa phần triển khai developer | 6đ | ✅ |
-| 5 | **Nâng cao: ArgoCD cho "dev" và "staging"** | **+2đ** | ✅ Đã cài |
-| 6 | **Nâng cao: Service Mesh (mTLS, AuthorizationPolicy, retry, Kiali)** | **+2đ** | ✅ Đã cài Istio |
-
-> [!IMPORTANT]
-> Đồ án ghi rõ dòng 46: **"bạn không cần triển khai Grafana và Prometheus (Observability)"**
-> → Việc chúng ta gỡ bỏ Observability stack là **đúng 100% yêu cầu đề bài!**
-
----
-
-## Phân Loại Services: GIỮ vs TẮT
-
-### 🟢 PHẢI GIỮ — Cốt lõi cho demo E-commerce + Service Mesh
+## Scope Service Hiện Tại
 
 | Service | Lý do giữ |
 |---------|-----------|
-| `product` | Sản phẩm — trung tâm của shop |
-| `cart` | Giỏ hàng — demo flow mua hàng |
-| `order` | Đơn hàng — demo flow đặt hàng, test **retry policy** (order→cart/payment/inventory/tax) |
+| `product` | Sản phẩm, trung tâm của shop |
+| `cart` | Giỏ hàng, demo flow mua hàng |
+| `order` | Đơn hàng, demo flow đặt hàng và retry policy |
 | `customer` | Thông tin khách hàng |
-| `inventory` | Kho hàng — order phụ thuộc |
-| `tax` | Thuế — order phụ thuộc, demo **VirtualService retry** |
+| `inventory` | Kho hàng, order phụ thuộc |
+| `tax` | Thuế, demo VirtualService retry |
 | `media` | Upload hình ảnh sản phẩm |
-| `search` | Tìm kiếm — phụ thuộc product, demo **AuthorizationPolicy** |
+| `search` | Tìm kiếm, demo AuthorizationPolicy |
 | `storefront-bff` | BFF cho giao diện người dùng |
-| `storefront-ui` | Giao diện cửa hàng — demo cho giảng viên |
+| `storefront-ui` | Giao diện cửa hàng |
 | `backoffice-bff` | BFF cho quản trị |
 | `backoffice-ui` | Giao diện quản trị |
 | `swagger-ui` | API documentation |
 
-**Tổng: 13 services**
+Tổng: 13 services.
 
-### 🔴 TẮT — Không cần thiết cho demo
+## Backlog Ưu Tiên
 
-| Service | Lý do tắt |
-|---------|-----------|
-| `payment` | ❌ Đang CrashLoopBackOff (lỗi image gốc) |
-| `payment-paypal` | ❌ Đang CrashLoopBackOff (lỗi JAR manifest) |
-| `debezium-connect` | ❌ Đang CrashLoopBackOff (Kafka version mismatch) |
-| `promotion` | Khuyến mãi — không cần cho flow cơ bản |
-| `rating` | Đánh giá — không cần cho flow cơ bản |
-| `recommendation` | Gợi ý — không cần cho demo |
-| `sampledata` | Dữ liệu mẫu — chỉ chạy 1 lần |
-| `webhook` | Webhook — không cần cho demo |
-| `location` | Vị trí — không cần cho demo |
+| Priority | Hạng mục | Việc cần làm | Kết quả mong đợi |
+|----------|----------|--------------|------------------|
+| P0 | Dựng lại cluster | Xóa cluster hiện tại trong WSL và cài lại K3s sạch hoặc Minikube 2-node | `kubectl get nodes` xanh, kubeconfig ổn định, ghi lại đầy đủ bước kết nối trong docs |
+| P0 | Chốt hạ tầng cốt lõi | Cài PostgreSQL, Kafka, Elasticsearch, Keycloak và các dependency nền tảng | Các namespace hạ tầng chạy ổn định trước khi deploy app |
+| P0 | Deploy 13 service cốt lõi | Chỉ giữ 13 service ở scope trên | Demo flow mua hàng, quản trị và Swagger hoạt động |
+| P0 | Service mesh | Bật Istio sidecar cho namespace app, mTLS STRICT, AuthorizationPolicy, DestinationRule, VirtualService retry, Kiali | Topology hiển thị đúng, access control hoạt động, retry evidence rõ ràng |
+| P0 | Observability | Cài Prometheus, Grafana, Loki, Tempo, OpenTelemetry Collector | Xem được metrics, dashboard và trace/log liên quan |
+| P1 | CI theo commit ID | Build/push image theo commit SHA cho từng branch hoặc service branch | Image có traceability, không còn phụ thuộc `latest` cho nhánh dev |
+| P1 | CD developer_build | Job nhận branch input và deploy đúng service branch đó | Dev thử nhanh một service mà không ảnh hưởng toàn bộ hệ thống |
+| P1 | Job cleanup | Có job xóa triển khai developer | Có thể rollback về baseline sạch |
+| P1 | Ảnh hóa môi trường dev/staging | Nếu dùng ArgoCD, map rõ dev/staging và tag release | Dev/staging tách biệt, dễ demo |
+| P2 | Script kiểm thử JS | Viết `verify-yas-stack.js` và `smoke-yas-http.js` để kiểm tra pods, routes, mesh policy, Prometheus/Grafana/Kiali health | Chạy 1 lệnh là biết hệ thống còn ổn hay không |
+| P2 | Chuẩn hóa docs | Ghi rõ cách kết nối kubeconfig, IP cluster, hosts file và trình tự cài đặt | Người khác có thể dựng lại từ đầu không cần đoán |
+| P2 | Dọn nhãn cũ | Loại bỏ tên gọi và tài liệu theo hướng core services hoặc full stack | Repo nhất quán, không còn thông điệp mâu thuẫn |
 
-**Tiết kiệm: 9 services = ~4-5GB RAM + rất nhiều CPU**
+## Ghi Chú Khi Triển Khai
 
----
+- Không ưu tiên các service phụ ngoài 13 service cốt lõi cho demo chính.
+- Chỉ giữ các service phụ khi nó phục vụ trực tiếp cho kiểm thử hoặc chứng minh vấn đề cụ thể.
+- Nếu một service gây crash hoặc tiêu tốn tài nguyên mà không nằm trong scope demo, không đưa vào luồng mặc định.
 
-## Kế Hoạch Thực Hiện
+## Tiêu Chí Hoàn Thành
 
-### Bước 1: Scale down services không cần thiết (namespace `yas`)
-```bash
-for svc in payment payment-paypal promotion rating recommendation sampledata webhook location; do
-  kubectl scale deployment/$svc --replicas=0 -n yas
-done
-```
-
-### Bước 2: Scale down debezium (namespace `kafka`)
-```bash
-kubectl scale deployment --all -l strimzi.io/kind=KafkaConnect --replicas=0 -n kafka 2>/dev/null || true
-# Hoặc trực tiếp:
-kubectl delete kafkaconnect debezium-connect-cluster -n kafka 2>/dev/null || true
-```
-
-### Bước 3: Giữ dev=0, staging=0 (ArgoCD chỉ hiện cây, không chạy pods)
-```bash
-kubectl patch application yas-dev -n argocd --type merge -p '{"spec":{"syncPolicy":null}}'
-kubectl patch application yas-staging -n argocd --type merge -p '{"spec":{"syncPolicy":null}}'
-kubectl scale deployment --all -n dev --replicas=0
-kubectl scale deployment --all -n staging --replicas=0
-```
-
-### Bước 4: Verify
-```bash
-kubectl get pods -n yas --no-headers | grep -v "0/.*Running"
-# Expected: 13 pods Running (2/2 nếu có sidecar)
-```
-
-## Tóm Tắt Tài Nguyên Sau Tối Ưu
-
-| Hạng mục | Trước | Sau |
-|----------|-------|-----|
-| Pods namespace `yas` | 22 | 13 |
-| Pods namespace `dev` | 20 | 0 (tree ArgoCD vẫn hiện) |
-| Pods namespace `staging` | 20 | 0 (tree ArgoCD vẫn hiện) |
-| Problem pods | 3 CrashLoop | 0 |
-| RAM ước tính | ~24GB | ~14-16GB |
-
-## Khi Nào Demo Cho Giảng Viên
-
-Nếu muốn demo ArgoCD staging "sống" (pods chạy thật), chỉ cần:
-```bash
-kubectl scale deployment --all -n staging --replicas=1
-```
-Chờ 3-5 phút → ArgoCD hiện cây xanh lá đầy đủ deploy→rs→pod.
+- 13 service cốt lõi chạy ổn định trong namespace ứng dụng.
+- K3s/Minikube mới được ghi lại đầy đủ bước kết nối và tái tạo.
+- Istio, Prometheus và Grafana hoạt động được trên cluster thật.
+- Có script kiểm thử tự động và kết quả pass/fail rõ ràng.
+- Không còn tài liệu chính nào định nghĩa flow theo hướng thu gọn.

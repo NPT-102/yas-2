@@ -125,13 +125,13 @@ Repository được trang bị **23 workflows** tối ưu hiệu suất, chạy 
 
 ## 🛠️ 5. Các Shell Scripts Hữu ích (Operational Scripts)
 
-Tất cả scripts phục vụ vận hành đều được đặt trong thư mục `infra/scripts/`:
+Tất cả scripts phục vụ vận hành chính được đặt trong `infra/scripts/` và `infra/k8s/deploy/`:
 
 *   **`start-yas.sh`**: Khởi động hệ thống Yas cục bộ thông qua Docker Compose.
 *   **`start-source-connectors.sh`**: Cấu hình luồng Change Data Capture (CDC) Debezium cho PostgreSQL sang Kafka.
-*   **`argocd-toggle-minimal.sh`**: Cho phép chuyển nhanh ứng dụng trên ArgoCD sang cấu hình "Minimal" (tắt bớt pods, giảm replicas) để tiết kiệm RAM cho cụm K3s yếu, hoặc bật lại đầy đủ replicas.
-    - *Bật Minimal:* `bash infra/scripts/argocd-toggle-minimal.sh enable`
-    - *Tắt Minimal:* `bash infra/scripts/argocd-toggle-minimal.sh disable`
+*   **`deploy-yas-applications.sh`** (`infra/k8s/deploy/deploy-yas-applications.sh`): Triển khai 13 core services và service mesh cho YAS demo.
+*   **`verify-yas-stack.js`** (`infra/scripts/verify-yas-stack.js`): Kiểm tra pod readiness, service mesh và observability sau khi deploy.
+*   **`smoke-yas-http.js`** (`infra/scripts/smoke-yas-http.js`): Smoke test các route public như storefront, backoffice, API, Keycloak, Grafana, Prometheus và Kiali.
 
 ---
 

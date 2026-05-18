@@ -24,7 +24,7 @@
 
 **Bỏ qua (không deploy):** location, payment, payment-paypal, promotion, rating, recommendation, webhook, sampledata.
 
-**File script mới:** `k8s/deploy/deploy-yas-minimal.sh` — dùng thay `deploy-yas-applications.sh`.
+**File script chính:** `k8s/deploy/deploy-yas-applications.sh` — dùng để triển khai 13 core services và service mesh.
 
 ---
 
@@ -42,7 +42,7 @@
 10. [Bước 10: Kiểm tra Keycloak Realm](#bước-10-kiểm-tra-keycloak-realm)
 11. [Bước 11: Cài Redis](#bước-11-cài-redis)
 12. [Bước 12: Deploy YAS Configuration](#bước-12-deploy-yas-configuration)
-13. [Bước 13: Deploy 13 services (Minimal)](#bước-13-deploy-13-services-minimal)
+13. [Bước 13: Deploy 13 core services](#bước-13-deploy-13-core-services)
 14. [Bước 14: Cấu hình /etc/hosts](#bước-14-cấu-hình-etchosts)
 15. [Bước 15: Kiểm tra tổng thể](#bước-15-kiểm-tra-tổng-thể)
 16. [Bước 16: (Tùy chọn) Cài Istio Service Mesh](#bước-16-tùy-chọn-cài-istio-service-mesh)
@@ -411,18 +411,18 @@ kubectl get secret -n yas --no-headers | wc -l
 
 ---
 
-## Bước 13: Deploy 13 services (Minimal)
+## Bước 13: Deploy 13 core services
 
 **Đây là bước khác biệt chính so với `CAI-DAT-TU-DAU.md`.**
 
-Dùng script `deploy-yas-minimal.sh` thay vì `deploy-yas-applications.sh`:
+Dùng script `deploy-yas-applications.sh`:
 
 ```bash
 cd /home/npt102/gcp/Devops2/yas/k8s/deploy
-./deploy-yas-minimal.sh
+./deploy-yas-applications.sh
 ```
 
-> ⏱ **Mất ~15-20 phút** (ít hơn ~10 phút so với deploy đầy đủ 21 services).
+> ⏱ **Mất ~15-20 phút** (ít hơn khoảng 10 phút so với flow deploy đầy đủ cũ).
 >
 > Script deploy theo thứ tự:
 > 1. backoffice-bff + backoffice-ui (chờ 60s)
@@ -521,7 +521,7 @@ for ns in postgres kafka elasticsearch keycloak redis ingress-nginx istio-system
 done
 echo ""
 
-echo "========== YAS (13 services minimal) =========="
+echo "========== YAS (13 core services) =========="
 running=$(kubectl get pods -n yas --no-headers | grep -c Running)
 total=$(kubectl get pods -n yas --no-headers | wc -l)
 echo "  yas: $running/$total Running"
@@ -547,7 +547,7 @@ fi
   ingress-nginx        1/3 Running       (2 Completed admission jobs)
   istio-system         3/3 Running
 
-========== YAS (13 services minimal) ==========
+========== YAS (13 core services) ==========
   yas: 13/13 Running
 ```
 
@@ -616,7 +616,7 @@ echo "VirtualSvc:" && kubectl get virtualservice -n yas
 
 ## Bước 17: (Tùy chọn) Cài ArgoCD
 
-> Chỉ cần nếu muốn dùng GitOps. **Không bắt buộc** cho flow minimal.
+> Chỉ cần nếu muốn dùng GitOps. **Không bắt buộc** cho luồng 13 services.
 
 ### 17a. Cài đặt ArgoCD
 
@@ -745,7 +745,7 @@ Log: `java.net.UnknownHostException: Failed to resolve 'storefront-nextjs'`
 
 Nguyên nhân: storefront-bff hardcode hostname `storefront-nextjs` nhưng Helm chart tạo service tên `storefront-ui`.
 
-Fix: Tạo ExternalName service alias. Xem [Bước 13](#bước-13-deploy-13-services-minimal).
+Fix: Tạo ExternalName service alias. Xem [Bước 13](#bước-13-deploy-13-core-services).
 
 ### Muốn thêm service sau
 
@@ -759,13 +759,12 @@ helm upgrade --install promotion ../charts/promotion \
   --namespace yas --set backend.ingress.host="api.$DOMAIN"
 ```
 
-### Muốn deploy đầy đủ 21 services
+### Lưu ý về flow full-stack cũ
 
-Chạy script gốc:
+Script `deploy-yas-applications.sh` hiện nay đã chuyển sang 13 core services + mesh. Nếu cần flow full-stack cũ, xem lịch sử commit hoặc tài liệu lưu trữ khác.
 
 ```bash
-cd /home/npt102/gcp/Devops2/yas/k8s/deploy
-./deploy-yas-applications.sh
+# Flow full-stack cũ không còn là luồng mặc định hiện tại.
 ```
 
 ---
@@ -785,7 +784,7 @@ cd /home/npt102/gcp/Devops2/yas/k8s/deploy
 10. Kiểm tra Keycloak realm                ← Verify
 11. ./setup-redis.sh                       ← Redis
 12. ./deploy-yas-configuration.sh          ← ConfigMaps + Secrets
-13. ./deploy-yas-minimal.sh                ← 13 services (~15 phút)
+13. ./deploy-yas-applications.sh           ← 13 core services + mesh (~15 phút)
 14. Sửa /etc/hosts                         ← Domain mapping
 15. Kiểm tra tổng thể                      ← Verify
 16. (Tùy) Istio sidecar + policies         ← Service mesh
@@ -802,8 +801,8 @@ cd /home/npt102/gcp/Devops2/yas/k8s/deploy
 |------|-------|
 | `project-docs/HUONG-DAN-TRIEN-KHAI-TOI-UU.md` | Hướng dẫn này |
 | `project-docs/CAI-DAT-TU-DAU.md` | Hướng dẫn đầy đủ (21 services) |
-| `k8s/deploy/deploy-yas-minimal.sh` | Script deploy 13 services |
-| `k8s/deploy/deploy-yas-applications.sh` | Script deploy đầy đủ 21 services |
+| `k8s/deploy/deploy-yas-applications.sh` | Script deploy 13 core services + mesh |
+| `k8s/deploy/deploy-yas-applications.sh` | Script deploy 13 core services + mesh (thay cho full stack cũ) |
 | `k8s/deploy/setup-cluster.sh` | Script cài infrastructure |
 | `k8s/deploy/setup-keycloak.sh` | Script cài Keycloak |
 | `k8s/deploy/setup-redis.sh` | Script cài Redis |
