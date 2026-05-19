@@ -121,7 +121,10 @@ function podsInNamespace(namespace) {
 }
 
 function checkObservability() {
-  const requiredPatterns = ['grafana', 'prometheus', 'kiali', 'loki', 'tempo', 'otel'];
+  const defaultPatterns = ['grafana', 'prometheus', 'kiali', 'loki', 'tempo', 'otel'];
+  const requiredPatterns = process.env.YAS_OBSERVABILITY_PATTERNS
+    ? process.env.YAS_OBSERVABILITY_PATTERNS.split(',')
+    : defaultPatterns;
   const podIndex = [];
 
   for (const namespace of config.observabilityNamespaces) {

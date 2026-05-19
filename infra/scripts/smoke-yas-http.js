@@ -21,14 +21,17 @@ function defaultEndpoints() {
     {
       name: 'storefront',
       url: `http://storefront.${domain}`,
+      bodyIncludes: [],
     },
     {
       name: 'backoffice',
       url: `http://backoffice.${domain}`,
+      bodyIncludes: [],
     },
     {
       name: 'api',
-      url: `http://api.${domain}`,
+      url: `http://api.${domain}/swagger-ui/`,
+      bodyIncludes: [],
     },
     {
       name: 'identity-openid',
@@ -38,14 +41,17 @@ function defaultEndpoints() {
     {
       name: 'grafana',
       url: `http://grafana.${domain}`,
+      bodyIncludes: [],
     },
     {
       name: 'prometheus',
       url: `http://prometheus.${domain}`,
+      bodyIncludes: [],
     },
     {
       name: 'kiali',
       url: `http://kiali.${domain}`,
+      bodyIncludes: [],
     },
   ];
 
