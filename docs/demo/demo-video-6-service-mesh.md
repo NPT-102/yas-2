@@ -18,7 +18,7 @@
 
 ### Bước 1: Mở và Thiết lập Giao diện Kiali Chi Tiết
 *   **Thao tác 1:** Port-forward mở cổng Kiali:
-    ```powershell
+    ```bash
     kubectl port-forward svc/kiali -n istio-system 20001:20001
     ```
 *   **Thao tác 2:** Truy cập `http://localhost:20001`.
@@ -35,13 +35,13 @@
     - **Tích chọn `Traffic Animation`** (hiệu ứng luồng động).
     - **Tích chọn `Request Rate`** (hiển thị số req/s trên đường truyền).
 *   **Thao tác 2:** Mở Terminal và bắn traffic liên tục:
-    ```powershell
-    $POD = (kubectl get pods -n dev -l app.kubernetes.io/name=cart -o jsonpath='{.items[0].metadata.name}')
-    1..20 | ForEach-Object {
-        kubectl exec -n dev $POD -c cart -- curl -s http://product.dev.svc.cluster.local/actuator/health > $null
-        Write-Host "Bắn Request $_..."
-        Start-Sleep -Milliseconds 300
-    }
+    ```bash
+    POD=$(kubectl get pods -n dev -l app.kubernetes.io/name=cart -o jsonpath='{.items[0].metadata.name}')
+    for i in $(seq 1 20); do
+        kubectl exec -n dev "$POD" -c cart -- curl -s http://product.dev.svc.cluster.local/actuator/health > /dev/null
+        echo "Bắn Request $i..."
+        sleep 0.3
+    done
     ```
 *   **Thao tác 3 (DEMO BIỂU ĐỒ TRÊN KIALI):**
     - Chờ đồ thị sáng lên với các mũi tên chuyển động.
@@ -62,7 +62,7 @@
 
 #### 🛡️ Kịch bản 4A: Chặn Pod lạ (Denied Case - HTTP 403)
 *   **Thao tác:** Chạy Pod lạ và cố ý curl sang Product:
-    ```powershell
+    ```bash
     kubectl -n dev run curl-unauthorized --image=curlimages/curl --restart=Never -- sleep 3600
     # Thực hiện lệnh curl sau khi pod running
     kubectl -n dev exec curl-unauthorized -- curl -i http://product.dev.svc.cluster.local/actuator/health
@@ -71,22 +71,22 @@
 
 #### 🔍 Đọc LOGS Envoy Sidecar (Xem chặn thực tế)
 *   **Thao tác:** Đọc logs của proxy container nằm ngay trong Pod để chỉ ra bằng chứng thép:
-    ```powershell
+    ```bash
     kubectl logs -n dev -l app.kubernetes.io/name=product -c istio-proxy --tail=30 | grep "RBAC"
     ```
 *   **Thuyết minh:** *"Em kiểm tra log của container `istio-proxy` ngay tại cửa ngõ Pod Product. Dòng log 'RBAC: access denied' xuất hiện rõ nét, ghi lại bằng chứng thép hệ thống đã ngăn chặn thành công."*
 
 #### ✅ Kịch bản 4B: Cho phép Pod whitelist (Allowed Case - HTTP 200)
 *   **Thao tác:** Dùng chính pod Cart chuẩn để gọi Product:
-    ```powershell
-    kubectl exec -n dev $POD -c cart -- curl -i http://product.dev.svc.cluster.local/actuator/health
+    ```bash
+    kubectl exec -n dev "$POD" -c cart -- curl -i http://product.dev.svc.cluster.local/actuator/health
     ```
 *   **Thuyết minh:** *"Đứng tại Pod Cart chính chủ, kết quả trả về là **`HTTP/1.1 200 OK`**. Rất trơn tru và tuyệt đối an toàn."*
 *   **Thao tác phụ:** Dọn dẹp pod test: `kubectl -n dev delete pod curl-unauthorized`.
 
 ### Bước 5: Giải trình Cấu hình Retry Policy
 *   **Thao tác:** In YAML VirtualService của Product để show cấu hình thực tế:
-    ```powershell
+    ```bash
     kubectl get virtualservice product -n dev -o yaml | grep -A 5 "retries:"
     ```
 *   **Thuyết minh:** *"Về Yêu cầu Retry khi lỗi 500, em in file YAML cấu hình thực tế. Block `retries` khai báo rõ: thử lại tối đa `attempts: 3` lần, chờ mỗi lần 2 giây khi gặp mã lỗi 5xx. Sidecar Proxy sẽ gánh vác trách nhiệm tự động thử lại cho hệ thống, tăng cường tối đa khả năng chịu lỗi."*
