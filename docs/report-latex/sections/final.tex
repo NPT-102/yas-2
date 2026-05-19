@@ -1,0 +1,2821 @@
+\section{Tổng quan đồ án}
+\subsection{Giới thiệu}
+Đồ án 2 yêu cầu xây dựng hệ thống \textbf{CI/CD hoàn chỉnh} để triển khai, vận hành và giám sát ứng dụng microservice \textbf{YAS — Yet Another Shop} trên nền tảng Kubernetes.
+
+YAS là ứng dụng thương mại điện tử mã nguồn mở theo kiến trúc microservice, gồm hơn 20 service viết bằng Java/Spring Boot và Next.js, tích hợp các công nghệ hiện đại: Kafka, Elasticsearch, Keycloak, OpenTelemetry, Grafana, Loki, Prometheus, Tempo.
+
+\subsection{Mục tiêu đồ án}
+\begin{itemize}
+    \item Xây dựng K3s cluster đa node (control-plane + 1 worker) trên máy vật lý/WSL2.
+    \item Thiết lập CI/CD pipeline tự động: GitHub Actions build \& push Docker image, ArgoCD sync Helm chart vào cluster.
+    \item Triển khai Istio Service Mesh với mTLS STRICT, AuthorizationPolicy, retry policy, và circuit breaker.
+    \item Cấu hình Observability stack: Prometheus, Grafana, Loki, Tempo, OpenTelemetry Collector.
+    \item Hỗ trợ môi trường Developer build riêng biệt theo namespace, staging release theo tag.
+\end{itemize}
+
+\subsection{Công nghệ sử dụng}
+\begin{table}[H]
+\centering
+\renewcommand{\arraystretch}{1.3}
+\begin{tabular}{|p{3.5cm}|p{4cm}|p{8cm}|}
+\hline
+\textbf{Lĩnh vực} & \textbf{Công nghệ} & \textbf{Vai trò} \\
+\hline
+Container Runtime & Docker, containerd & Build image, runtime cho K3s \\
+\hline
+Kubernetes & K3s v1.32.5 & Điều phối container, 3-node cluster \\
+\hline
+Package Manager & Helm 3 & Template \& deploy K8s manifests \\
+\hline
+GitOps / CD & ArgoCD v3.4.2 & Tự động sync Helm chart từ Git \\
+\hline
+CI Pipeline & GitHub Actions & Build, test, push Docker image \\
+\hline
+Service Mesh & Istio 1.24.3 & mTLS, traffic management, observability \\
+\hline
+Message Queue & Strimzi + Kafka 4.1.0 (KRaft) & Async communication giữa services \\
+\hline
+Identity & Keycloak 24 & OIDC/OAuth2 authentication \\
+\hline
+Search & Elasticsearch + Kibana & Full-text search cho product catalog \\
+\hline
+Metrics & Prometheus + Grafana & Thu thập và hiển thị metrics \\
+\hline
+Logging & Loki + Promtail & Thu thập và truy vấn log \\
+\hline
+Tracing & Tempo + Jaeger & Distributed tracing \\
+\hline
+OTel & OpenTelemetry Collector & Thu thập \& forward telemetry data \\
+\hline
+CNI & Flannel (host-gw) & Pod networking trong cluster \\
+\hline
+Ingress & ingress-nginx & Route HTTP traffic vào cluster \\
+\hline
+\end{tabular}
+\caption{Công nghệ sử dụng trong đồ án}
+\label{tab:tech-stack}
+\end{table}
+
+\section{Kiến trúc hệ thống}
+\subsection{Sơ đồ tổng thể}
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1\textwidth]{img/K3s Cluster Service Flow-2026-05-18-040507.jpg}
+    \caption{Sơ đồ tổng thể}
+\end{figure}
+
+\subsection{Sơ đồ K3s Multi-node Cluster}
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{img/K3s Cluster Service Flow-2026-05-18-041417.jpg}
+    \caption{Sơ đồ K3s Multi-node Cluster}
+\end{figure}
+
+\subsection{Sơ đồ Namespace Phân tầng}
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1\textwidth]{img/K3s Cluster Service Flow-2026-05-18-043132.jpg}
+    \caption{Sơ đồ Namespace Phân tầng}
+\end{figure}
+
+\subsection{Sơ đồ luồng Traffic}
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1\textwidth]{img/K3s Cluster Service Flow-2026-05-18-043405.jpg}
+    \caption{Sơ đồ luồng Traffic}
+\end{figure}
+
+\section{Cấu hình Hạ tầng}
+\subsection{Lý do chọn K3s thay Minikube}
+Ban đầu, nhóm sử dụng \textbf{Minikube} để triển khai YAS trên môi trường local. Tuy nhiên khi scale lên 20 microservices + observability stack (Loki, Prometheus, Grafana), liên tiếp xảy ra các sự cố:
+
+\begin{enumerate}
+    \item Out of Memory: Minikube chạy toàn bộ Kubernetes bên trong một VM (hay Docker container). Overhead VM cộng thêm 2–3 GB RAM. Khi cài thêm Loki + Prometheus + 10 Spring Boot services, tổng RAM vượt giới hạn → Linux OOM killer kích hoạt → kill `kubelet` và `kube-apiserver` → cluster die hoàn toàn.
+    \item Port 80/443 không tự động: Minikube không expose LoadBalancer services ra máy host theo mặc định. Phải chạy `minikube tunnel` trên terminal riêng, session đóng là mất access — không thể để background daemon.
+    \item inotify reset sau restart: Minikube VM reset kernel parameters về default mỗi lần restart. Promtail (log collector) và Kafka Connect cần `inotify.max\_user\_watches` cao → sau mỗi lần restart cluster phải chạy lại `sysctl` thủ công.
+    \item Single-node: Minikube chỉ chạy được 1 node. Không thể test multi-node scheduling, pod anti-affinity, hay mô phỏng node failure.
+\end{enumerate}
+
+So sánh Minikube vs K3s:
+\renewcommand{\arraystretch}{1.4}
+\begin{longtable}{|p{3.2cm}|p{3.2cm}|p{3.5cm}|p{6cm}|}
+\caption{So sánh Minikube và K3s}
+\label{tab:minikube-vs-k3s} \\
+\hline
+\textbf{Tiêu chí} & \textbf{Minikube} & \textbf{K3s} & \textbf{Ý nghĩa thực tế} \\
+\hline
+\endfirsthead
+\hline
+\textbf{Tiêu chí} & \textbf{Minikube} & \textbf{K3s} & \textbf{Ý nghĩa thực tế} \\
+\hline
+\endhead
+\hline
+\endfoot
+\hline
+\endlastfoot
+
+\textbf{Cơ chế chạy} &
+VM hoặc Docker-in-Docker &
+Systemd service (native Linux process) &
+K3s chạy trực tiếp trên OS — không có tầng ảo hóa trung gian, syscall đi thẳng vào kernel \\
+\hline
+
+\textbf{RAM overhead} &
+$\sim$2--3 GB (cho VM/container) &
+$\sim$512 MB (chỉ một binary \texttt{k3s}) &
+Tiết kiệm 1.5--2 GB RAM cho workload thực tế \\
+\hline
+
+\textbf{Port 80/443} &
+Cần \texttt{minikube tunnel} (chạy foreground) &
+Tự động qua \texttt{klipper-lb} (DaemonSet) &
+K3s bind port 80/443 trực tiếp trên mọi node, không cần thêm lệnh \\
+\hline
+
+\textbf{Auto-start sau reboot} &
+Phải \texttt{minikube start} thủ công &
+\texttt{systemctl enable k3s} $\rightarrow$ start cùng OS &
+Cluster luôn sẵn sàng sau khi máy reboot, không cần intervention \\
+\hline
+
+\textbf{inotify limit} &
+Reset về default mỗi lần restart VM &
+Persist trong \texttt{/etc/ sysctl.d/ 99-k3s.conf} &
+Chạy một lần, có hiệu lực vĩnh viễn — Promtail/Kafka không còn crash \\
+\hline
+
+\textbf{Worker node thật} &
+Không hỗ trợ (single-node) &
+Có — join bằng \texttt{k3s agent} &
+Có thể thêm máy WSL2 (\texttt{quoctan}, \texttt{anhkhoa}) làm worker thật \\
+\hline
+
+\textbf{Binary size} &
+$\sim$500 MB (nhiều component) &
+$\sim$50 MB (all-in-one binary) &
+K3s tích hợp containerd, CNI, CoreDNS vào 1 binary duy nhất \\
+\hline
+
+\textbf{Ingress built-in} &
+Không (cần addon) &
+Có thể disable Traefik, cài NGINX &
+Linh hoạt hơn trong việc chọn ingress controller \\
+\hline
+
+\textbf{Kafka/Promtail stability} &
+Dễ crash do inotify limit tụt về default &
+Ổn định — kernel params giữ nguyên &
+Observability stack chạy liên tục không gián đoạn \\
+\hline
+
+\end{longtable}
+
+Sau khi Minikube crash do OOM (Linux OOM killer kill \texttt{kubelet} + \texttt{kube-apiserver} khi tổng RAM sử dụng vượt ngưỡng), nhóm chuyển hoàn toàn sang \textbf{K3s v1.32.5+k3s1} — bản LTS ổn định, không có race condition của v1.35.x trong \texttt{cloud-controller-manager}. Cluster mới gồm 3 node: \texttt{fedora} (control-plane), \texttt{quoctan}.
+
+\subsection{Quyết định kiến trúc (Architecture Decisions)}
+
+Phần này ghi lại các quyết định kỹ thuật quan trọng theo mô hình ADR (Architecture Decision Record): mô tả vấn đề, các lựa chọn được xem xét, quyết định cuối cùng, và trade-off.
+
+\subsubsection*{ADR-01: K3s thay vì kubeadm / kind / Minikube}
+
+\begin{table}[H]
+\centering
+\renewcommand{\arraystretch}{1.3}
+\begin{tabular}{|p{3cm}|p{12.5cm}|}
+\hline
+\textbf{Vấn đề} & Cần Kubernetes runtime cho môi trường lab, máy vật lý RAM giới hạn (\textasciitilde{}12 GB), cần multi-node. \\
+\hline
+\textbf{Lựa chọn} &
+\begin{itemize}[noitemsep,topsep=0pt]
+  \item \textbf{Minikube}: Single-node, VM overhead ~2GB RAM, reset kernel params sau restart.
+  \item \textbf{kubeadm}: Production-grade nhưng cài đặt phức tạp, yêu cầu nhiều node thật, không phù hợp lab.
+  \item \textbf{kind}: Chạy K8s trong Docker container, khó expose port 80/443 ra host.
+  \item \textbf{K3s}: Binary đơn lẻ ~50MB, overhead ~512MB, native systemd, hỗ trợ multi-node qua agent.
+\end{itemize} \\
+\hline
+\textbf{Quyết định} & K3s v1.32.5+k3s1 (LTS). \\
+\hline
+\textbf{Trade-off} & K3s thay thế etcd bằng SQLite (single-node etcd) — không HA. Chấp nhận được cho lab; production cần external etcd hoặc embedded HA mode. \\
+\hline
+\end{tabular}
+\caption{ADR-01: Lựa chọn Kubernetes runtime}
+\end{table}
+
+\subsubsection*{ADR-02: ArgoCD thay vì FluxCD}
+
+\begin{table}[H]
+\centering
+\renewcommand{\arraystretch}{1.3}
+\begin{tabular}{|p{3cm}|p{12.5cm}|}
+\hline
+\textbf{Vấn đề} & Cần GitOps controller tự động sync Helm chart từ Git vào cluster. \\
+\hline
+\textbf{Lựa chọn} &
+\begin{itemize}[noitemsep,topsep=0pt]
+  \item \textbf{FluxCD}: GitOps chuẩn CNCF, nhẹ hơn, nhưng thiếu UI built-in.
+  \item \textbf{ArgoCD}: UI web trực quan, ApplicationSet generator mạnh, dễ demo và debug.
+\end{itemize} \\
+\hline
+\textbf{Quyết định} & ArgoCD v3.4.2. \\
+\hline
+\textbf{Trade-off} & ArgoCD tiêu tốn thêm ~300MB RAM (Redis + application controller + server). FluxCD nhẹ hơn nhưng không có UI để trực quan hoá sync state — quan trọng khi demo và debug. \\
+\hline
+\end{tabular}
+\caption{ADR-02: Lựa chọn GitOps controller}
+\end{table}
+
+\subsubsection*{ADR-03: Flannel host-gw thay vì VXLAN / Calico / Cilium}
+
+\begin{table}[H]
+\centering
+\renewcommand{\arraystretch}{1.3}
+\begin{tabular}{|p{3cm}|p{12.5cm}|}
+\hline
+\textbf{Vấn đề} & Cần CNI plugin cho pod networking trong cluster lab. \\
+\hline
+\textbf{Lựa chọn} &
+\begin{itemize}[noitemsep,topsep=0pt]
+  \item \textbf{Flannel VXLAN (default)}: ~50 bytes overhead/packet, CPU encode/decode.
+  \item \textbf{Flannel host-gw}: Dùng kernel routing table, không overhead.
+  \item \textbf{Calico/Cilium}: Network policy mạnh, eBPF, nhưng phức tạp và nặng hơn.
+\end{itemize} \\
+\hline
+\textbf{Quyết định} & Flannel host-gw. \\
+\hline
+\textbf{Trade-off} & host-gw yêu cầu tất cả node phải cùng L2 subnet — đây chính là nguyên nhân node \texttt{quoctan} (\texttt{172.16.1.x}) bị cordon. Nếu cần cross-subnet, phải dùng VXLAN hoặc Calico. \\
+\hline
+\end{tabular}
+\caption{ADR-03: Lựa chọn CNI plugin}
+\end{table}
+
+\subsubsection*{ADR-04: ingress-nginx thay vì Istio Gateway}
+
+\begin{table}[H]
+\centering
+\renewcommand{\arraystretch}{1.3}
+\begin{tabular}{|p{3cm}|p{12.5cm}|}
+\hline
+\textbf{Vấn đề} & Cần ingress controller để route HTTP traffic từ ngoài vào cluster. \\
+\hline
+\textbf{Lựa chọn} &
+\begin{itemize}[noitemsep,topsep=0pt]
+  \item \textbf{Istio Gateway}: Tích hợp sẵn trong mesh, nhưng phức tạp hơn, cần VirtualService kết hợp.
+  \item \textbf{ingress-nginx}: Mature, annotations phong phú, tương thích tốt với Istio (inject sidecar).
+\end{itemize} \\
+\hline
+\textbf{Quyết định} & ingress-nginx với Istio sidecar inject. \\
+\hline
+\textbf{Trade-off} & TLS terminate tại ingress-nginx, không phải tại Istio Gateway. North-south traffic không được encrypt bởi Istio mTLS (chỉ east-west). Chấp nhận được vì đây là lab environment trên LAN. \\
+\hline
+\end{tabular}
+\caption{ADR-04: Lựa chọn ingress controller}
+\end{table}
+
+\subsection{Cài đặt K3s Control Plane}
+\textbf{Mục đích}: Khởi tạo node master, thiết lập API server, etcd, scheduler, và tất cả control-plane components trên máy \texttt{fedora} — bước này cài đặt và khởi động toàn bộ control-plane components (API server, embedded etcd, scheduler, controller-manager) dưới dạng một systemd service duy nhất. Sau bước này cluster sẵn sàng nhận worker node join.
+
+\subsubsection{Cài đặt K3s binary}
+Vì K3s không có trong package manager của Fedora. Script cài đặt chính thức tải binary, tạo systemd service, và khởi động cluster trong một lệnh duy nhất. Chúng em chạy lệnh:
+\begin{verbatim}
+curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION=v1.32.5+k3s1 sh -s - \
+  --disable=traefik \
+  --write-kubeconfig-mode=644
+\end{verbatim}
+Giải thích lệnh:
+\begin{itemize}
+    \item curl -sfL: `-s` silent (không in progress bar), `-f` fail với exit code khác 0 nếu HTTP error, `-L` follow redirect — đảm bảo script tải về hoàn chỉnh trước khi pipe vào shell.
+    \item INSTALL\_K3S\_VERSION: Ghim cứng version — không để K3s tự chọn `latest`. Lý do: K3s v1.35.x có race condition trong `cloud-controller-manager` (CCM): khi RBAC chưa kịp khởi tạo xong, CCM gặp `403 Forbidden` → crash loop vĩnh viễn. v1.32.5 là bản LTS stable đã được kiểm chứng
+    \item --disable=traefik: tắt ingress controller mặc định của K3s (dùng ingress-nginx thay thế vì nginx feature-rich hơn, hỗ trợ annotations phong phú, tương thích tốt với Istio)
+    \item --write-kubeconfig-mode=644: cho phép user thường đọc kubeconfig (không cần sudo kubectl)
+\end{itemize}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1\textwidth]{img/2yas-1.jpg}
+    \caption{Output}
+\end{figure}
+
+\subsubsection{Ghi cấu hình persistent cho K3s}
+Vì các flag `--disable=traefik` và `--flannel-backend` truyền qua dòng lệnh cài đặt sẽ không được lưu lại. Nếu systemd restart K3s service (sau reboot, sau crash), K3s đọc lại `/etc/rancher/k3s/config.yaml` — nếu không có file này thì khởi động với config mặc định (sẽ bật lại Traefik, dùng VXLAN backend).
+
+\begin{verbatim}
+sudo tee /etc/rancher/k3s/config.yaml <<'EOF'
+disable:
+  - traefik
+write-kubeconfig-mode: "644"
+flannel-backend: host-gw
+EOF
+\end{verbatim}
+Giải thích lệnh:
+\begin{itemize}
+    \item `disable: traefik`: Tắt Traefik vĩnh viễn
+    \item `write-kubeconfig-mode: "644"`: Kubeconfig readable bởi mọi user, không phải sudo mỗi lần kubectl
+    \item `flannel-backend: host-gw`: Dùng Linux kernel routing table thay VXLAN encapsulation. Vì VXLAN bọc mỗi packet vào một UDP frame (~50 bytes overhead) và yêu cầu CPU encode/decode mỗi packet — không cần thiết khi tất cả nodes đều cùng L2 subnet `172.16.0.x`. `host-gw` thay thế bằng cách chỉ thêm một entry vào routing table kernel (`ip route add 10.42.1.0/24 via 172.16.0.90`), packet đi thẳng qua Ethernet mà không cần đóng gói → latency thấp hơn ~15\%. Trade-off: nodes phải cùng L2 — đây là lý do `quoctan` (`172.16.1.x`, khác subnet) bị cordon sau này vì packet cross-node bị drop.
+\end{itemize}
+
+\subsubsection{Tăng giới hạn inotify của kernel}
+Vì Linux kernel theo dõi file system changes qua cơ chế \textbf{inotify}. Giá trị mặc định \texttt{max\_user\_watches=8192} nghĩa là mỗi user process chỉ watch được tối đa 8192 file/folder đồng thời nhưng vì có nhiều service nên giới hạn này là không đủ dẫn đến lỗi \texttt{ENOSPC: no space left on device} (dù disk vẫn còn chỗ) khiến cho Promtail crash.
+
+Vì thế nên chúng em đã tăng giới hạn này lên bằng lệnh:
+\begin{verbatim}
+sudo tee /etc/sysctl.d/99-k3s.conf <<'EOF'
+fs.inotify.max_user_watches=524288
+fs.inotify.max_user_instances=512
+EOF
+\end{verbatim}
+
+Giải thích lệnh:
+\begin{itemize}
+    \item `fs.inotify.max\_user\_watches=524288`: tăng giới hạn watch file log để có đủ chỗ cho Promtail, Kafka, apps .
+    \item  `fs.inotify.max\_user\_instances=512`: tăng số lượng inotify instance mà một user có thể tạo.
+\end{itemize}
+
+\begin{verbatim}
+sudo sysctl --system
+\end{verbatim}
+Lệnh này giúp áp dụng ngay lập tức, không cần reboot. Hệ thống đọc và áp dụng tất cả file trong /etc/sysctl.d/ theo thứ tự tên file giúp mỗi lần reboot, kernel load lại các giá trị từ thư mục này → không cần chạy lại thủ công.
+
+\subsubsection{Khắc phục lỗi TLS handshake timeout do MTU mismatch}
+
+Trong quá trình triển khai cluster, chúng em gặp lỗi \texttt{TLS handshake timeout} xảy ra ngẫu nhiên giữa các pod và rất khó debug do không xuất hiện log lỗi rõ ràng. Nguyên nhân đến từ việc MTU của pod network interface và CNI bridge không đồng nhất.
+
+Cụ thể, pod network interface sử dụng MTU mặc định Ethernet là \texttt{1500}, trong khi bridge \texttt{cni0} của Flannel chỉ có MTU \texttt{1450} để chứa VXLAN encapsulation overhead. Khi pod gửi một TLS packet lớn hơn 1450 bytes (ví dụ TLS ClientHello khoảng 2KB), kernel buộc phải chia packet thành nhiều fragment. Tuy nhiên fragment thứ hai cần ICMP message \texttt{Fragmentation Needed} để báo cho sender giảm MTU. Nếu ICMP bị firewall hoặc security group chặn, fragment này sẽ bị drop silently khiến TLS handshake treo vô thời hạn.
+
+Để giải quyết vấn đề này, chúng em sử dụng kỹ thuật \texttt{TCP MSS clamping} bằng iptables để giới hạn kích thước TCP segment ngay từ lúc bắt tay TCP:
+
+\begin{verbatim}
+sudo iptables -t mangle -A FORWARD -p tcp --tcp-flags SYN SYN \
+  -j TCPMSS --clamp-mss-to-pmtu
+\end{verbatim}
+
+Giải thích lệnh:
+\begin{itemize}
+    \item \texttt{-t mangle}: sử dụng bảng \texttt{mangle} của iptables để chỉnh sửa packet ở mức thấp trước khi routing.
+    
+    \item \texttt{-A FORWARD}: áp dụng rule cho các packet đi qua node, bao gồm traffic pod-to-pod và pod-to-service.
+    
+    \item \texttt{-p tcp --tcp-flags SYN SYN}: chỉ áp dụng cho TCP SYN packet (giai đoạn bắt đầu connection). MSS chỉ cần được thương lượng một lần khi bắt tay TCP nên không cần xử lý mọi packet.
+    
+    \item \texttt{-j TCPMSS --clamp-mss-to-pmtu}: tự động giảm MSS theo Path MTU nhỏ nhất trên đường truyền.
+    
+    \begin{itemize}
+        \item Path MTU của cluster là \texttt{1450} bytes (MTU của bridge \texttt{cni0}).
+        
+        \item MSS được tính bằng:
+        
+        \[
+        MSS = PMTU - 40
+        \]
+        
+        trong đó 40 bytes gồm:
+        
+        \begin{itemize}
+            \item 20 bytes IP header
+            \item 20 bytes TCP header
+        \end{itemize}
+        
+        nên MSS thực tế sẽ là:
+        
+        \[
+        MSS = 1450 - 40 = 1410 \text{ bytes}
+        \]
+        
+        \item Khi đó TCP sender sẽ tự chia dữ liệu thành các segment nhỏ hơn hoặc bằng 1410 bytes, tránh việc kernel phải fragment packet.
+    \end{itemize}
+\end{itemize}
+
+Chúng em chọn giải pháp \texttt{TCPMSS} thay vì giảm MTU trực tiếp trên pod interface vì việc giảm MTU bằng lệnh như:
+
+\begin{verbatim}
+ip link set eth0 mtu 1410
+\end{verbatim}
+
+chỉ có hiệu lực với pod hiện tại và sẽ mất khi pod bị recreate. Trong khi đó, rule \texttt{TCPMSS} được áp dụng ở mức node nên tự động hoạt động cho tất cả pod hiện tại và các pod được tạo sau này.
+
+\subsubsection{Kiểm tra trạng thái cluster}
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1\textwidth]{img/2yas2.jpg}
+    \caption{Xác nhận cluster hoạt động}
+\end{figure}
+
+\begin{itemize}
+    \item coredns: DNS resolver nội bộ cluster — phân giải `service.namespace.svc.cluster.local`
+    \item local-path-provisioner: Tự động tạo PersistentVolume từ thư mục local trên node (dùng cho postgres, elasticsearch lưu data)
+    \item metrics-server: Thu thập CPU/RAM metrics từ kubelet — cần thiết cho `kubectl top` và HPA (Horizontal Pod Autoscaler)
+\end{itemize}
+\subsection{Thêm Worker Node}
+Vì hệ thống tương đối lớn nên cần nhiều tài nguyên. Để tăng tổng tài nguyên CPU/RAM thì cần mở rộng bằng cách thêm Worker Node vào. 
+\subsubsection{Lấy token authentication}
+Để thêm vào thì cần sử dụng cơ chế token-based authentication trong K3S, worker phải có token hợp lệ mới được API server chấp nhận join.
+\begin{verbatim}
+TOKEN=$(sudo cat /var/lib/rancher/k3s/server/node-token)
+echo $TOKEN
+\end{verbatim}
+Giải thích:
+\begin{itemize}
+    \item /var/lib/rancher/k3s/server/node-token: file chứa bootstrap token duy nhất của cluster
+\end{itemize}
+\subsubsection{Cấu hình firewall cho K3s cluster}
+
+Để các node trong cluster có thể giao tiếp với nhau ổn định, chúng em cần cấu hình firewall cho control plane node. Nếu không mở đúng các dải mạng và port cần thiết, worker node sẽ không thể kết nối tới Kubernetes API server hoặc pod/service traffic sẽ bị chặn bởi firewall.
+
+Các lệnh được sử dụng như sau:
+
+\begin{verbatim}
+sudo firewall-cmd --permanent --add-port=6443/tcp
+sudo firewall-cmd --permanent --zone=trusted --add-source=10.42.0.0/16
+sudo firewall-cmd --permanent --zone=trusted --add-source=10.43.0.0/16
+sudo firewall-cmd --permanent --zone=trusted --add-source=172.16.0.0/24
+sudo firewall-cmd --reload
+\end{verbatim}
+
+Giải thích lệnh:
+\begin{itemize}
+    \item \texttt{--permanent}: lưu firewall rule xuống disk để không bị mất sau khi reboot hệ thống.
+    
+    \item \texttt{--add-port=6443/tcp}: mở port \texttt{6443} cho Kubernetes API server.
+    
+    Đây là port mà:
+    \begin{itemize}
+        \item Worker node sử dụng để kết nối tới control plane.
+        \item \texttt{kubelet} giao tiếp với API server để nhận pod specification, secrets, configmaps và các lệnh điều phối khác.
+    \end{itemize}
+    
+    Nếu port này bị chặn, worker node sẽ ở trạng thái \texttt{NotReady}.
+    
+    \item \texttt{--zone=trusted --add-source=10.42.0.0/16}: thêm Pod CIDR vào trusted zone.
+    
+    Dải mạng \texttt{10.42.0.0/16} là subnet mà K3s/Flannel cấp cho các pod. Việc đưa subnet này vào trusted zone cho phép:
+    
+    \begin{itemize}
+        \item Pod trên các node khác giao tiếp với pod tại node hiện tại.
+        \item Cho phép pod-to-pod traffic hoạt động bình thường.
+    \end{itemize}
+    
+    \item \texttt{--zone=trusted --add-source=10.43.0.0/16}: thêm Service CIDR vào trusted zone.
+    
+    Dải mạng này chứa các ClusterIP service của Kubernetes. Rule này giúp:
+    
+    \begin{itemize}
+        \item Các node và pod có thể truy cập Kubernetes Service thông qua ClusterIP.
+        \item DNS nội bộ và service discovery hoạt động chính xác.
+    \end{itemize}
+    
+    \item \texttt{--zone=trusted --add-source=172.16.0.0/24}: cho phép toàn bộ máy trong mạng LAN nội bộ truy cập với mức trust cao.
+    
+    Đây là dải IP của:
+    
+    \begin{itemize}
+        \item Control plane node
+        \item Worker nodes
+        \item Các máy WSL2 tham gia cluster
+    \end{itemize}
+    
+    Nhờ đó các node có thể trao đổi traffic Kubernetes mà không bị firewall filter hoặc drop packet.
+    
+    \item \texttt{firewall-cmd --reload}: reload lại cấu hình firewall để áp dụng các rule vừa thêm.
+\end{itemize}
+
+\subsubsection{Thêm worker node vào K3s cluster}
+
+Sau khi control plane hoạt động ổn định, chúng em tiến hành thêm các worker node vào cluster để phân tán workload và tăng khả năng mở rộng hệ thống.
+
+Lệnh dùng để cài K3s agent trên worker node:
+
+\begin{verbatim}
+curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION=v1.32.5+k3s1 \
+  K3S_URL="https://172.16.0.240:6443" \
+  K3S_TOKEN="${TOKEN}" sh -
+\end{verbatim}
+
+Giải thích lệnh:
+\begin{itemize}
+    \item \texttt{K3S\_URL="https://172.16.0.240:6443"}: địa chỉ Kubernetes API server của control plane.
+    
+    Worker node sẽ sử dụng endpoint này để:
+    
+    \begin{itemize}
+        \item đăng ký vào cluster,
+        \item nhận pod specification,
+        \item đồng bộ trạng thái với control plane.
+    \end{itemize}
+    
+    Bắt buộc phải dùng IP thật của control plane thay vì \texttt{127.0.0.1} vì worker node nằm trên máy khác trong mạng LAN.
+    
+    \item \texttt{K3S\_TOKEN="\$\{TOKEN\}"}: token xác thực giữa worker và control plane.
+    
+    Token này được tạo tự động khi khởi tạo K3s server và thường nằm tại:
+    
+\begin{verbatim}
+/var/lib/rancher/k3s/server/node-token
+\end{verbatim}
+
+    Chỉ những worker có token hợp lệ mới được phép join cluster.
+    
+    \item Khi script \texttt{get.k3s.io} phát hiện biến môi trường \texttt{K3S\_URL}, nó sẽ tự động cài K3s ở chế độ \texttt{agent} thay vì \texttt{server}.
+    
+    Điều này giúp node hoạt động như một worker node chuyên chạy workload thay vì đóng vai trò control plane.
+\end{itemize}
+
+\vspace{0.5em}
+
+Sau khi join cluster, chúng em tiếp tục tăng giới hạn \texttt{inotify} trên worker node:
+
+\begin{verbatim}
+sudo tee /etc/sysctl.d/99-k3s.conf <<'EOF'
+fs.inotify.max_user_watches=524288
+fs.inotify.max_user_instances=512
+EOF
+
+sudo sysctl --system
+\end{verbatim}
+
+Lý do cần cấu hình tương tự control plane là vì Promtail được triển khai dưới dạng \texttt{DaemonSet}, nghĩa là mỗi node trong cluster sẽ chạy một Promtail pod để thu thập log cục bộ.
+
+Nếu worker node vẫn giữ giới hạn \texttt{inotify} mặc định của Linux:
+\begin{itemize}
+    \item Promtail có thể không watch đủ số lượng file log,
+    \item log collection bị gián đoạn,
+    \item xuất hiện lỗi \texttt{ENOSPC: no space left on device},
+    \item observability stack hoạt động không ổn định.
+\end{itemize}
+
+Lệnh \texttt{sysctl --system} dùng để reload toàn bộ kernel parameter từ các file trong \texttt{/etc/sysctl.d/} và áp dụng ngay mà không cần reboot hệ thống.
+
+\subsubsection{Kiểm tra trạng thái cluster}
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1\textwidth]{img/2yas3.jpg}
+    \caption{Xác nhận đã thêm được worker node}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1\textwidth]{img/2yas4.jpg}
+    \caption{Kiểm tra phân phối pod}
+\end{figure}
+
+\subsubsection{CoreDNS -- Hostname Resolution}
+
+Trong hệ thống microservices, service \texttt{storefront-bff} cần gọi tới Keycloak thông qua hostname:
+
+\begin{verbatim}
+http://identity.yas.local.com
+\end{verbatim}
+
+để thực hiện xác thực OIDC token. Tuy nhiên hostname này không tồn tại trong DNS mặc định của Kubernetes nên CoreDNS không thể resolve được.
+
+Nếu không cấu hình thêm DNS mapping, luồng xử lý sẽ xảy ra như sau:
+
+\begin{verbatim}
+storefront-bff
+  → query DNS: identity.yas.local.com
+  → CoreDNS không biết hostname này
+  → trả về NXDOMAIN
+  → ứng dụng không kết nối được Keycloak
+  → pod CrashLoopBackOff
+\end{verbatim}
+
+Để giải quyết vấn đề này, chúng em thêm \texttt{hosts} block vào CoreDNS Corefile nhằm map trực tiếp hostname tới IP tương ứng mà không cần thông qua DNS bên ngoài.
+
+Trước khi chỉnh sửa, chúng em kiểm tra Corefile hiện tại:
+
+\begin{verbatim}
+kubectl get configmap coredns -n kube-system \
+  -o jsonpath='{.data.Corefile}'
+\end{verbatim}
+
+Sau đó chỉnh sửa ConfigMap:
+
+\begin{verbatim}
+kubectl edit configmap coredns -n kube-system
+\end{verbatim}
+
+Corefile sau khi cấu hình:
+
+\begin{verbatim}
+.:53 {
+    hosts {
+      10.43.113.74  identity.yas.local.com
+      10.43.113.74  identity.yas.local
+
+      172.16.0.240  api.yas.local.com
+      172.16.0.240  storefront.yas.local.com
+      172.16.0.240  backoffice.yas.local.com
+
+      fallthrough
+    }
+
+    kubernetes cluster.local in-addr.arpa ip6.arpa {
+      pods insecure
+      fallthrough in-addr.arpa ip6.arpa
+    }
+
+    forward . /etc/resolv.conf
+    cache 30
+    loop
+    reload
+    loadbalance
+}
+\end{verbatim}
+
+Giải thích cấu hình:
+\begin{itemize}
+    \item \texttt{hosts}: cho phép định nghĩa static hostname mapping ngay bên trong CoreDNS.
+    
+    \item \texttt{10.43.113.74 identity.yas.local.com}: map hostname của Keycloak trực tiếp tới ClusterIP service.
+    
+    Chúng em sử dụng ClusterIP thay vì ingress IP (\texttt{172.16.0.240}) vì:
+    
+    \begin{itemize}
+        \item Nếu đi qua ingress:
+        
+\begin{verbatim}
+pod → ingress-nginx → ingress-nginx → Keycloak pod
+\end{verbatim}
+
+        request sẽ phải loop qua ingress không cần thiết.
+        
+        \item Nếu dùng ClusterIP:
+        
+\begin{verbatim}
+pod → Keycloak service → Keycloak pod
+\end{verbatim}
+
+        traffic sẽ đi trực tiếp trong cluster, giảm latency và tránh routing loop.
+    \end{itemize}
+    
+    \item Các hostname như:
+    
+\begin{verbatim}
+api.yas.local.com
+storefront.yas.local.com
+backoffice.yas.local.com
+\end{verbatim}
+
+    được map tới ingress IP vì các service này được expose thông qua ingress-nginx.
+    
+    \item \texttt{fallthrough}: nếu hostname không tồn tại trong \texttt{hosts} block thì CoreDNS sẽ chuyển request sang plugin tiếp theo thay vì trả lỗi ngay.
+    
+    \item \texttt{forward . /etc/resolv.conf}: forward các DNS query không thuộc cluster ra DNS bên ngoài.
+    
+    \item \texttt{cache 30}: cache DNS result trong 30 giây để giảm số lượng DNS query.
+    
+    \item \texttt{reload}: CoreDNS tự động reload khi ConfigMap thay đổi nên không cần restart pod thủ công.
+\end{itemize}
+
+Sau khi cấu hình xong, chúng em kiểm tra CoreDNS đã reload thành công bằng cách xem log:
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1\textwidth]{img/2yas5.jpg}
+    \caption{Output}
+\end{figure}
+
+Cuối cùng, chúng em verify DNS resolution từ bên trong cluster:
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1\textwidth]{img/2yas6.jpg}
+    \caption{Output}
+\end{figure}
+
+Điều này xác nhận rằng CoreDNS đã resolve đúng hostname của Keycloak về ClusterIP service bên trong cluster.
+
+\section{Pipeline CI/CD}
+\subsection{Sơ đồ tổng thể CI/CD}
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1\textwidth]{img/K3s Cluster Service Flow-2026-05-18-073809.jpg}
+    \caption{Sơ đồ tổng thể CI/CD}
+\end{figure}
+\subsection{GitHub Secrets và Self-hosted Runner}
+
+Trong quá trình xây dựng CI/CD pipeline, chúng em sử dụng GitHub Actions để tự động build Docker image và deploy ứng dụng lên K3s cluster. Tuy nhiên, GitHub-hosted runner mặc định không thể sử dụng trong mô hình này.
+
+Nguyên nhân là vì Kubernetes API server của K3s chỉ chạy nội bộ trong mạng LAN:
+
+\begin{verbatim}
+https://127.0.0.1:6443
+\end{verbatim}
+
+GitHub-hosted runner chạy trên hạ tầng cloud của GitHub nên không thể truy cập địa chỉ localhost của cluster nội bộ:
+
+\begin{verbatim}
+GitHub-hosted runner
+  → kubectl apply ...
+  → connect tới https://127.0.0.1:6443
+  → connection refused / timeout
+\end{verbatim}
+
+Để giải quyết vấn đề này, chúng em triển khai \texttt{Self-hosted Runner} trực tiếp trên máy \texttt{fedora} nằm trong cùng mạng với cluster. Khi đó runner có thể truy cập Kubernetes API server thông qua localhost hoặc IP nội bộ mà không cần expose cluster ra internet.
+
+\vspace{0.5em}
+
+Ngoài runner, GitHub Actions cũng cần một số secret để authenticate với Docker Hub và Kubernetes cluster.
+
+\begin{table}[H]
+\centering
+\renewcommand{\arraystretch}{1.3}
+\begin{tabular}{|p{3.5cm}|p{12cm}|}
+\hline
+\textbf{Secret} & \textbf{Mô tả} \\
+\hline
+
+\texttt{DOCKER\_USER} &
+Username Docker Hub dùng làm prefix cho image \\
+\hline
+
+\texttt{DOCKER\_PASS} &
+Docker Hub Access Token dùng để push image  \\
+\hline
+
+\texttt{KUBE\_CONFIG} &
+Kubeconfig encoded base64 chứa toàn bộ thông tin kết nối cluster \\
+\hline
+
+\end{tabular}
+\caption{GitHub Secrets sử dụng trong CI/CD pipeline}
+\end{table}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1\textwidth]{img/2yas7.jpg}
+    \caption{Thông tin secrets}
+\end{figure}
+
+\vspace{0.5em}
+
+Tiếp theo, chúng em cài đặt Self-hosted Runner trên máy \texttt{fedora}:
+
+\begin{verbatim}
+mkdir ~/actions-runner && cd ~/actions-runner
+
+curl -o actions-runner.tar.gz -L \
+  https://github.com/actions/runner/releases/download/v2.322.0/\
+actions-runner-linux-x64-2.322.0.tar.gz
+
+tar xzf actions-runner.tar.gz
+\end{verbatim}
+
+Sau khi tải binary runner, chúng em đăng ký runner với GitHub repository:
+
+\begin{verbatim}
+./config.sh --url https://github.com/NPT-102/yas-2 --token <TOKEN>
+\end{verbatim}
+
+Trong đó:
+\begin{itemize}
+    \item \texttt{--url}: repository GitHub cần attach runner.
+    
+    \item \texttt{--token}: registration token được GitHub cấp tại:
+    
+\begin{verbatim}
+Settings → Actions → Runners → New self-hosted runner
+\end{verbatim}
+\end{itemize}
+
+Khi đăng ký thành công, runner sẽ xuất hiện với trạng thái:
+
+\begin{verbatim}
+√ Connected to GitHub
+√ Runner successfully added
+\end{verbatim}
+
+Cuối cùng, runner được chạy background bằng:
+
+\begin{verbatim}
+nohup ./run.sh > runner.log 2>&1 &
+\end{verbatim}
+
+Giải thích:
+\begin{itemize}
+    \item \texttt{nohup}: giữ process tiếp tục chạy ngay cả khi đóng terminal SSH.
+    
+    \item \texttt{> runner.log 2>\&1}: redirect toàn bộ stdout và stderr vào file log để dễ debug.
+    
+    \item \texttt{\&}: chạy process dưới background.
+\end{itemize}
+
+Kết quả khi chạy runner
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1\textwidth]{img/2yas8.jpg}
+    \caption{Trạng thái khi runner hoạt động}
+\end{figure}
+
+\subsection{CI Workflow -- Per-service Path Filtering}
+
+Ban đầu hệ thống sử dụng một workflow duy nhất để detect service thay đổi bằng:
+
+\begin{verbatim}
+git diff HEAD~1 HEAD
+\end{verbatim}
+
+sau đó build theo matrix. Tuy nhiên cách này có nhược điểm:
+\begin{itemize}
+    \item logic detect phức tạp,
+    \item dễ sai khi rebase hoặc force-push,
+    \item mọi workflow đều phải chạy job detect trước khi build.
+\end{itemize}
+
+Vì vậy hệ thống được thiết kế lại theo hướng \textbf{per-service workflow}, tức là mỗi service có một file CI riêng và GitHub Actions tự lọc workflow cần chạy bằng \texttt{paths:} filter.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1\textwidth]{img/2yas9.jpg}
+    \caption{File ci của cart service}
+\end{figure}
+
+Giải thích:
+\begin{itemize}
+    \item \texttt{paths: 'cart/**'}: workflow chỉ chạy khi có thay đổi trong thư mục \texttt{cart/}.
+    
+    \item \texttt{!cart/**.md}: bỏ qua thay đổi các file markdown để tránh rebuild không cần thiết.
+    
+    \item \texttt{workflow\_dispatch}: cho phép trigger thủ công từ GitHub UI.
+    
+    \item Workflow này không tự build mà gọi reusable workflow:
+    
+\begin{verbatim}
+ci-build-push.yaml
+\end{verbatim}
+
+    giúp tái sử dụng logic CI cho nhiều service khác nhau.
+\end{itemize}
+
+\vspace{0.5em}
+
+Reusable workflow cho Java services:
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1\textwidth]{img/2yas10.jpg}
+    \caption{File reusable}
+\end{figure}
+
+Workflow trên thực hiện:
+\begin{itemize}
+    \item Checkout source code.
+    
+    \item Lấy 7 ký tự đầu commit SHA:
+    
+\begin{verbatim}
+git rev-parse --short HEAD
+\end{verbatim}
+
+    để làm Docker image tag.
+    
+    \item Cài JDK 25 và cache Maven dependencies nhằm giảm thời gian download thư viện.
+    
+    \item Build đúng module cần thiết:
+    
+\begin{verbatim}
+mvn clean package -DskipTests -pl cart -am
+\end{verbatim}
+
+    Trong đó:
+    
+    \begin{itemize}
+        \item \texttt{-pl}: chỉ build service được chỉ định.
+        \item \texttt{-am}: tự build thêm các dependencies liên quan.
+    \end{itemize}
+    
+    \item Build và push Docker image lên Docker Hub:
+    
+\begin{verbatim}
+npt219/yas-k3s-cart:a3f2c91
+npt219/yas-k3s-cart:latest
+\end{verbatim}
+\end{itemize}
+
+\vspace{0.5em}
+
+Đối với frontend Next.js (\texttt{backoffice}, \texttt{storefront}), hệ thống sử dụng workflow riêng:
+
+\begin{verbatim}
+ci-ui-build-push.yaml
+\end{verbatim}
+
+vì frontend không cần Maven hay JDK. Quá trình build được thực hiện trực tiếp trong Dockerfile bằng multi-stage build.
+
+\vspace{0.5em}
+
+Thiết kế per-service workflow mang lại nhiều lợi ích:
+\begin{itemize}
+    \item Chỉ workflow liên quan mới chạy.
+    
+    \item Giảm đáng kể runner minutes và thời gian CI.
+    
+    \item Workflow độc lập, dễ maintain và debug.
+    
+    \item Tránh lỗi detect sai khi rebase hoặc force-push.
+    
+    \item CI output rõ ràng hơn trên GitHub Actions.
+\end{itemize}
+
+Kết quả khi chạy CI
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1\textwidth]{img/2yas11.jpg}
+    \caption{Kết quả khi chạy CI}
+\end{figure}
+
+\subsection{Developer Build Workflow}
+
+Workflow \texttt{cd-developer-build.yaml} cho phép mỗi developer tạo môi trường riêng:
+
+\begin{verbatim}
+dev-alice
+dev-bob
+dev-charlie
+\end{verbatim}
+
+để test service từ branch cá nhân mà không ảnh hưởng môi trường \texttt{dev} hoặc \texttt{staging} chung.
+
+Workflow được trigger thủ công từ GitHub Actions:
+
+\begin{verbatim}
+Actions → CD - Developer Build → Run workflow
+\end{verbatim}
+
+Ví dụ developer \texttt{alice} muốn test branch:
+
+\begin{verbatim}
+feature/cart-discount
+\end{verbatim}
+
+thì chỉ service \texttt{cart} dùng image build từ branch này, còn các service khác tiếp tục dùng tag \texttt{latest} ổn định.
+
+\vspace{0.5em}
+
+Workflow chính:
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1\textwidth]{img/2yas13.jpg}
+    \caption{Workflow}
+\end{figure}
+
+Namespace được tạo theo format: dev-{developer}
+
+Ví dụ: dev-alice
+
+Lệnh:
+
+\begin{verbatim}
+kubectl create namespace ... --dry-run=client | kubectl apply
+\end{verbatim}
+
+giúp workflow chạy idempotent, tức là không lỗi nếu namespace đã tồn tại.
+
+\vspace{0.5em}
+
+Sau đó workflow deploy infrastructure:
+
+\begin{verbatim}
+helm upgrade --install yas-infra \
+  ./infra/k8s/charts/yas-configuration \
+  --namespace ${{ env.NAMESPACE }}
+\end{verbatim}
+
+để khởi tạo Config Server trước khi các service khác start.
+
+\vspace{0.5em}
+
+Workflow tiếp tục resolve image tag theo branch:
+
+\begin{verbatim}
+get_tag() {
+  local branch="$1"
+
+  [ "$branch" = "main" ] && echo "latest" && return
+
+  git ls-remote origin "refs/heads/$branch" | cut -c1-7
+}
+\end{verbatim}
+
+Logic:
+\begin{itemize}
+    \item Nếu branch là \texttt{main} → dùng image tag:
+    
+\begin{verbatim}
+:latest
+\end{verbatim}
+
+    \item Nếu là feature branch → lấy short SHA của branch đó để deploy đúng image tương ứng.
+\end{itemize}
+
+Ví dụ:
+
+\begin{verbatim}
+cart_branch=feature/cart-discount
+\end{verbatim}
+
+sẽ deploy:
+
+\begin{verbatim}
+npt219/yas-k3s-cart:a3f2c91
+\end{verbatim}
+
+trong khi các service khác vẫn dùng:
+
+\begin{verbatim}
+:latest
+\end{verbatim}
+
+\vspace{0.5em}
+
+Deploy service bằng Helm:
+
+\begin{verbatim}
+helm upgrade --install cart \
+  ./infra/k8s/charts/cart \
+  --namespace ${{ env.NAMESPACE }} \
+  --set backend.image.tag="$(get_tag ...)"
+\end{verbatim}
+
+Sau khi deploy, workflow kiểm tra rollout song song:
+
+\begin{verbatim}
+kubectl rollout status deployment/cart \
+  -n ${{ env.NAMESPACE }}
+\end{verbatim}
+
+giúp giảm tổng thời gian chờ xuống bằng service chậm nhất thay vì chờ tuần tự.
+
+\vspace{0.5em}
+
+Cuối cùng workflow tự động in ra NodePort endpoint:
+
+\begin{verbatim}
+cart  -> 172.16.0.240:31667
+\end{verbatim}
+
+để developer có thể test trực tiếp mà không cần chạy thêm lệnh \texttt{kubectl} thủ công.
+
+\vspace{0.5em}
+
+Sau khi test xong, môi trường developer được xóa bằng workflow:
+
+\begin{verbatim}
+cd-developer-cleanup.yaml
+\end{verbatim}
+
+Ví dụ:
+
+\begin{verbatim}
+kubectl delete namespace dev-alice --ignore-not-found=true
+\end{verbatim}
+
+Toàn bộ pod, service, ingress và PVC bên trong namespace sẽ được Kubernetes tự động dọn dẹp.
+
+\section{ArgoCD — GitOps}
+\subsection{Kiến trúc GitOps}
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1\textwidth]{img/K3s Cluster Service Flow-2026-05-18-080116.jpg}
+    \caption{Sơ đồ kiến trúc GitOps}
+\end{figure}
+\subsection{ApplicationSet Configuration}
+
+Hệ thống sử dụng \texttt{ApplicationSet} của ArgoCD để tự động sinh nhiều Application từ một template duy nhất, thay vì tạo thủ công từng Application cho mỗi service.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1\textwidth]{img/2yas12.jpg}
+    \caption{File cấu hình}
+\end{figure}
+
+Giải thích:
+\begin{itemize}
+    \item \texttt{elements}: mỗi service trong danh sách sẽ tạo ra một ArgoCD Application riêng.
+    
+    Ví dụ:
+    
+\begin{verbatim}
+{ service: cart }
+\end{verbatim}
+
+    sẽ sinh:
+    
+\begin{verbatim}
+dev-cart
+\end{verbatim}
+
+    \item \texttt{targetRevision: main}: ArgoCD luôn theo dõi branch \texttt{main} và tự sync khi Git thay đổi.
+    
+    \item \texttt{path}: trỏ tới Helm chart của từng service:
+    
+\begin{verbatim}
+infra/k8s/charts/cart
+\end{verbatim}
+
+    \item \texttt{valueFiles}: Helm merge:
+    
+\begin{verbatim}
+values.yaml
+→ values-dev.yaml
+\end{verbatim}
+
+    trong đó file environment override sẽ ghi đè cấu hình mặc định.
+    
+    \item \texttt{prune: true}: nếu resource bị xóa khỏi Git thì ArgoCD cũng tự xóa khỏi cluster.
+    
+    \item \texttt{selfHeal: true}: nếu ai chỉnh sửa resource trực tiếp bằng:
+    
+\begin{verbatim}
+kubectl edit
+\end{verbatim}
+
+    ArgoCD sẽ tự rollback về đúng trạng thái trong Git.
+\end{itemize}
+
+Sau khi apply ApplicationSet:
+
+\begin{verbatim}
+kubectl apply -f dev-appset.yaml -n argocd
+\end{verbatim}
+
+ArgoCD sẽ tự sinh các applications:
+
+\begin{verbatim}
+dev-cart
+dev-order
+dev-product
+...
+\end{verbatim}
+
+và tự động deploy toàn bộ services vào namespace \texttt{dev}.
+
+\vspace{0.5em}
+
+\subsection{Helm Values Override theo Environment}
+
+Mỗi service có nhiều file values để tách cấu hình theo môi trường.
+
+Ví dụ:
+
+\begin{verbatim}
+# values.yaml
+backend:
+  image:
+    repository: npt219/yas-k3s-cart
+    tag: latest
+\end{verbatim}
+
+\begin{verbatim}
+# values-dev.yaml
+backend:
+  image:
+    tag: latest
+\end{verbatim}
+
+\begin{verbatim}
+# values-staging.yaml
+backend:
+  image:
+    tag: v1.0.0
+\end{verbatim}
+
+Trong đó:
+\begin{itemize}
+    \item \texttt{values.yaml}: cấu hình mặc định dùng chung.
+    
+    \item \texttt{values-dev.yaml}: override cho môi trường development.
+    
+    \item \texttt{values-staging.yaml}: sử dụng image tag cố định theo release version thay vì \texttt{latest}.
+\end{itemize}
+
+\vspace{0.5em}
+
+
+\subsection{Chiến lược Scaling}
+
+Tất cả services đều chạy với:
+
+\begin{verbatim}
+replicaCount: 1
+\end{verbatim}
+
+cho cả môi trường \texttt{dev} và \texttt{staging}.
+
+Ví dụ:
+
+\begin{verbatim}
+kubectl get deployments -n dev
+\end{verbatim}
+
+\begin{verbatim}
+cart             1/1
+order            1/1
+product          1/1
+\end{verbatim}
+
+Lý do:
+\begin{itemize}
+    \item Cluster có tài nguyên giới hạn.
+    
+    \item Dev/staging không yêu cầu high availability.
+    
+    \item Giảm overhead từ Istio sidecar.
+    
+    \item Rolling update nhanh hơn khi CI/CD deploy image mới.
+\end{itemize}
+
+Môi trường hiện tại là \textbf{production-like} (có đầy đủ CI/CD, service mesh, observability) nhưng chưa đạt production-grade do single control plane và không có HA etcd. Khi nâng lên môi trường thật, các service chịu tải cao như \texttt{product}, \texttt{cart}, \texttt{order} cần được cấu hình thêm:
+\begin{itemize}
+    \item \texttt{Horizontal Pod Autoscaler (HPA)} — tự động scale khi CPU/RAM vượt ngưỡng.
+    \item \texttt{PodDisruptionBudget} — đảm bảo tối thiểu 1 replica available trong rolling update.
+    \item \texttt{Pod Anti-affinity} — tránh nhiều replica cùng service chạy trên cùng node.
+\end{itemize}
+
+\section{Service Mesh — Istio}
+\subsection{Sơ đồ Istio Service Mesh}
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1\textwidth]{img/K3s Cluster Service Flow-2026-05-18-082114.jpg}
+    \caption{Sơ đồ Istio Service Mesh}
+\end{figure}
+
+\subsection{Cài đặt Istio}
+
+Istio được sử dụng để triển khai service mesh cho hệ thống, cho phép quản lý traffic, observability và bảo mật mTLS giữa các services.
+
+Đầu tiên tải bộ cài Istio:
+
+\begin{verbatim}
+curl -L https://istio.io/downloadIstio | ISTIO_VERSION=1.24.3 sh -
+
+cd istio-1.24.3
+\end{verbatim}
+
+Trong đó:
+\begin{itemize}
+    \item \texttt{ISTIO\_VERSION=1.24.3}: cố định version để tránh breaking changes giữa các bản release.
+    
+    \item Script sẽ tải:
+    \begin{itemize}
+        \item \texttt{istioctl}
+        \item manifests
+        \item addons
+    \end{itemize}
+\end{itemize}
+
+\vspace{0.5em}
+
+Tiếp theo cài Istio control plane:
+
+\begin{verbatim}
+bin/istioctl install --set profile=demo -y
+\end{verbatim}
+
+Trong đó:
+\begin{itemize}
+    \item \texttt{profile=demo}: cài đầy đủ các thành phần phục vụ môi trường demo/lab:
+    
+    \begin{itemize}
+        \item \texttt{istiod}
+        \item \texttt{istio-ingressgateway}
+        \item \texttt{istio-egressgateway}
+        \item \texttt{Kiali}
+        \item \texttt{Prometheus}
+        \item \texttt{Grafana}
+    \end{itemize}
+    
+\end{itemize}
+
+Sau khi cài đặt thành công:
+
+\begin{verbatim}
+✔ Istio core installed
+✔ Istiod installed
+✔ Ingress gateways installed
+✔ Installation complete
+\end{verbatim}
+
+Kiểm tra control plane:
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1\textwidth]{img/2yas14.jpg}
+    \caption{Output}
+\end{figure}
+
+\vspace{0.5em}
+
+Sau đó bật sidecar injection cho các namespace:
+
+\begin{verbatim}
+kubectl label namespace yas \
+  istio-injection=enabled --overwrite
+
+kubectl label namespace ingress-nginx \
+  istio-injection=enabled --overwrite
+
+kubectl label namespace dev \
+  istio-injection=enabled --overwrite
+
+kubectl label namespace staging \
+  istio-injection=enabled --overwrite
+\end{verbatim}
+
+Giải thích:
+\begin{itemize}
+    \item Label:
+    
+\begin{verbatim}
+istio-injection=enabled
+\end{verbatim}
+
+    được Istio webhook theo dõi.
+    
+    \item Khi pod mới được tạo trong namespace có label này, Istio sẽ tự động inject thêm container:
+    
+\begin{verbatim}
+istio-proxy
+\end{verbatim}
+
+    vào pod.
+    
+    \item Container này là Envoy sidecar dùng để:
+    
+    \begin{itemize}
+        \item intercept traffic,
+        \item thực hiện mTLS,
+        \item telemetry,
+        \item traffic routing.
+    \end{itemize}
+\end{itemize}
+
+Namespace \texttt{ingress-nginx} cũng cần inject sidecar để ingress controller có thể giao tiếp bằng mTLS với các services bên trong mesh.
+
+\vspace{0.5em}
+
+Sau khi gán label cần restart deployment:
+
+\begin{verbatim}
+kubectl rollout restart deployment -n yas
+
+kubectl rollout restart deployment \
+  ingress-nginx-controller -n ingress-nginx
+\end{verbatim}
+
+vì các pod đang chạy sẽ không tự inject sidecar.
+
+\vspace{0.5em}
+
+Kiểm tra sidecar đã inject thành công:
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1\textwidth]{img/2yas15.jpg}
+    \caption{Output}
+\end{figure}
+
+Trong đó:
+\begin{itemize}
+    \item Container thứ nhất: application container.
+    \item Container thứ hai: \texttt{istio-proxy} sidecar.
+\end{itemize}
+
+READY = \texttt{2/2} cho thấy sidecar injection đã hoạt động thành công.
+
+\subsection{mTLS STRICT}
+
+Hệ thống sử dụng Istio mTLS ở chế độ \texttt{STRICT} để đảm bảo mọi traffic giữa các services trong namespace \texttt{yas} đều được mã hóa và xác thực hai chiều.
+
+Các mode của mTLS gồm:
+\begin{itemize}
+    \item \texttt{DISABLE}: tắt mTLS, toàn bộ traffic là plaintext.
+    \item \texttt{PERMISSIVE}: chấp nhận cả plaintext và mTLS.
+    \item \texttt{STRICT}: chỉ chấp nhận kết nối có mTLS certificate hợp lệ.
+\end{itemize}
+
+Cấu hình:
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1\textwidth]{img/2yas16.jpg}
+    \caption{File cấu hình}
+\end{figure}
+
+Khi bật \texttt{STRICT}:
+\begin{itemize}
+    \item mọi pod trong namespace \texttt{yas} chỉ chấp nhận kết nối mTLS,
+    \item certificate được Istiod CA cấp tự động,
+    \item pod không có sidecar hoặc certificate hợp lệ sẽ bị từ chối.
+\end{itemize}
+
+\textbf{Security boundary — phạm vi bảo vệ:} Mô hình Istio trong đồ án bảo vệ \textbf{east-west traffic} (service-to-service bên trong cluster). Luồng traffic được phân tầng như sau:
+
+\begin{center}
+\begin{tabular}{ccc}
+Internet & $\longrightarrow$ & \texttt{ingress-nginx} \\
+ & & \textdownarrow{} \small{TLS terminate (L7)} \\
+ & & \texttt{BFF (storefront-bff / backoffice-bff)} \\
+ & & \textdownarrow{} \small{mTLS (Istio STRICT)} \\
+ & & \texttt{Backend services (cart, product, order, ...)} \\
+\end{tabular}
+\end{center}
+
+\textbf{Lưu ý quan trọng:} North-south traffic (từ ngoài Internet vào ingress-nginx) \emph{không} được bảo vệ bởi Istio mTLS — TLS terminate tại ingress-nginx. Đây là thiết kế phù hợp cho môi trường lab LAN; production cần bổ sung cert-manager + Let's Encrypt để terminate HTTPS tại ingress. Ngoài ra, mô hình hiện tại chưa có cert rotation tự động và trust domain isolation giữa các namespace — cần bổ sung khi scale ra production.
+
+\vspace{0.5em}
+
+\subsection{DestinationRule}
+
+\texttt{PeerAuthentication} định nghĩa policy phía server, còn \texttt{DestinationRule} định nghĩa policy phía client khi gọi tới service.
+
+Ví dụ:
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1\textwidth]{img/2yas17.jpg}
+    \caption{File cấu hình}
+\end{figure}
+
+Giải thích:
+\begin{itemize}
+    \item \texttt{ISTIO\_MUTUAL}: Envoy tự động dùng certificate do Istio cấp.
+    
+    \item \texttt{maxConnections}: giới hạn số TCP connections đồng thời.
+    
+    \item \texttt{outlierDetection}: circuit breaker tự loại bỏ pod lỗi khỏi load balancer.
+\end{itemize}
+
+Ví dụ nếu một pod liên tục trả về lỗi 5xx, Envoy sẽ ngừng route traffic tới pod đó trong 30 giây.
+
+\vspace{0.5em}
+
+\subsection{Authorization Policy}
+
+Istio AuthorizationPolicy được dùng để giới hạn service nào được phép gọi service nào.
+
+Mặc định hệ thống deny toàn bộ traffic:
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1\textwidth]{img/2yas18.jpg}
+    \caption{Cấu hình deny toàn bộ traffic}
+\end{figure}
+
+Sau đó chỉ mở quyền cần thiết.
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1\textwidth]{img/K3s Cluster Service Flow-2026-05-18-084721.jpg}
+    \caption{Sơ đồ traffic}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1\textwidth]{img/2yas19.jpg}
+    \caption{Cấu hình cấp quyền allow traffic}
+\end{figure}
+
+Cách tiếp cận này hoạt động theo mô hình: default deny + explicit allow giúp giảm nguy cơ service trái phép truy cập nội bộ.
+
+\vspace{0.5em}
+
+\subsection{VirtualService -- Retry Policy}
+
+Istio VirtualService được sử dụng để định nghĩa traffic routing và retry policy ở layer 7.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1\textwidth]{img/2yas20.jpg}
+    \caption{File cấu hình}
+\end{figure}
+
+
+Giải thích:
+\begin{itemize}
+    \item \texttt{attempts: 3}: retry tối đa 3 lần.
+    
+    \item \texttt{perTryTimeout: 5s}: mỗi lần retry timeout sau 5 giây.
+    
+    \item \texttt{gateway-error}: retry khi gặp lỗi 502, 503, 504.
+    
+    \item \texttt{connect-failure}: retry khi pod đang restart hoặc chưa sẵn sàng.
+\end{itemize}
+
+Retry policy giúp hệ thống tự phục hồi khi xảy ra lỗi ngắn hạn như rolling update hoặc pod restart mà không cần implement retry logic trong application code.
+
+\vspace{0.5em}
+
+Kiểm tra VirtualService đã apply
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1\textwidth]{img/2yas21.jpg}
+    \caption{Kết quả kiểm tra}
+\end{figure}
+
+\subsection{Pod Distribution Policy}
+
+Hệ thống sử dụng \texttt{topologySpreadConstraints} kết hợp \texttt{nodeAffinity} để phân phối pods giữa các nodes.
+
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1\textwidth]{img/2yas22.jpg}
+    \caption{Cấu hình phân phối pods}
+\end{figure}
+
+Trong đó:
+\begin{itemize}
+    \item Node \texttt{fedora} được ưu tiên nhận phần lớn workload (do RAM lớn nhất).
+    
+    \item Worker nodes còn lại nhận ít pods hơn theo preference weight.
+    
+    \item \texttt{maxSkew: 1} giới hạn độ lệch phân phối giữa các node.
+\end{itemize}
+
+\textbf{Lưu ý quan trọng:} Cấu hình sử dụng \texttt{preferredDuringSchedulingIgnoredDuringExecution}, nghĩa là đây là \emph{soft preference}, không phải hard constraint. Kubernetes \emph{ưu tiên} phân phối theo cấu hình nhưng không đảm bảo tỉ lệ cố định khi tài nguyên bị giới hạn. Node \texttt{quoctan} hiện đang bị \texttt{cordon} do giới hạn networking L2 của WSL2 (khác subnet \texttt{172.16.1.x}), nên workload thực tế phân phối giữa \texttt{fedora} và \texttt{anhkhoa}.
+
+Chính sách này giúp:
+\begin{itemize}
+    \item tận dụng node mạnh nhất (\texttt{fedora}) cho workload chính,
+    \item tránh single-node bottleneck,
+    \item cluster vẫn hỗ trợ multi-node scheduling khi \texttt{quoctan} được uncordon sau khi vấn đề networking được giải quyết.
+\end{itemize}
+
+\section{Kiểm thử}
+
+Toàn bộ các kịch bản kiểm thử được ghi lại qua video minh họa. Mỗi mục dưới đây mô tả nội dung kiểm thử và kết quả đạt được.
+
+\subsection{Kiểm thử hạ tầng K8S Cluster}
+
+\textbf{Nội dung kiểm thử:}
+\begin{itemize}
+    \item Xác nhận 3-node cluster (\texttt{fedora}, \texttt{quoctan}, \texttt{anhkhoa}) ở trạng thái \texttt{Ready}.
+    \item Kiểm tra các system pod: CoreDNS, metrics-server, local-path-provisioner, Flannel.
+    \item Xác nhận pod scheduling phân phối đúng theo \texttt{topologySpreadConstraints}.
+    \item Kiểm tra DNS resolution nội bộ cluster (Keycloak, các service).
+\end{itemize}
+
+\textbf{Kết quả:} Cluster hoạt động ổn định, toàn bộ system pod \texttt{Running}, DNS resolve đúng hostname Keycloak từ trong pod.
+
+\noindent\textbf{Video:} \url{https://drive.google.com/file/d/1GuJlfOOZ3O-dB0uUMrtuxbTyjjBlm1ml/view?usp=sharing}
+
+\subsection{Kiểm thử CI Pipeline}
+
+\textbf{Nội dung kiểm thử:}
+\begin{itemize}
+    \item Push commit vào nhánh \texttt{main} của service \texttt{cart} — chỉ workflow \texttt{cart-ci.yaml} được trigger.
+    \item GitHub Actions chạy: Maven build → unit test → Docker build → push image lên Docker Hub với tag commit SHA.
+    \item Xác nhận image \texttt{npt219/yas-k3s-cart:<sha>} và \texttt{:latest} tồn tại trên Docker Hub sau khi workflow hoàn thành.
+    \item Xác nhận test report được publish lên GitHub Checks.
+\end{itemize}
+
+\textbf{Kết quả:} CI pipeline chạy thành công trong khoảng 3--5 phút, image được push đúng tag, test report hiển thị trên GitHub Actions.
+
+\noindent\textbf{Video:} \url{https://drive.google.com/file/d/1zb9xxsEMszUUHVLBe7He2FLSzGGY-M9k/view?usp=sharing}
+
+\subsection{Kiểm thử CD cho Developer}
+
+\textbf{Nội dung kiểm thử:}
+\begin{itemize}
+    \item Trigger workflow \texttt{cd-developer-build.yaml} với developer = \texttt{alice}, branch \texttt{cart} = \texttt{feature/cart-discount}.
+    \item Xác nhận namespace \texttt{dev-alice} được tạo và toàn bộ services deploy thành công.
+    \item Service \texttt{cart} dùng image từ branch \texttt{feature/cart-discount}, các service còn lại dùng \texttt{:latest}.
+    \item Workflow in ra NodePort endpoint để developer test trực tiếp.
+    \item Trigger workflow cleanup \texttt{cd-developer-cleanup.yaml} — namespace \texttt{dev-alice} bị xóa hoàn toàn.
+\end{itemize}
+
+\textbf{Kết quả:} Môi trường developer được tạo và xóa tự động, hoàn toàn tách biệt với môi trường \texttt{dev} và \texttt{staging} chung.
+
+\noindent\textbf{Video deploy:} \url{https://drive.google.com/file/d/17CZP7YSTSHlhlE0ymXXtWeBvk8dTYXK-/view?usp=sharing}
+
+\noindent\textbf{Video cleanup:} \url{https://drive.google.com/file/d/18QiffgwA7HSpugKFWRI1skjWnM_kr7zO/view?usp=sharing}
+
+\subsection{Kiểm thử GitOps với ArgoCD cho Dev và Staging}
+
+\textbf{Nội dung kiểm thử:}
+\begin{itemize}
+    \item Thay đổi \texttt{values-dev.yaml} của service \texttt{product} trên nhánh \texttt{main} — ArgoCD phát hiện \texttt{OutOfSync} và tự động sync.
+    \item Xác nhận pod \texttt{product} trong namespace \texttt{dev} được rolling update với image mới.
+    \item Kiểm tra \texttt{selfHeal}: chỉnh sửa trực tiếp \texttt{kubectl edit deployment/product -n dev} — ArgoCD rollback về đúng trạng thái Git trong vài giây.
+    \item Xác nhận ApplicationSet tạo đủ 26 Applications (13 dev + 13 staging).
+\end{itemize}
+
+\textbf{Kết quả:} GitOps hoạt động đúng — mọi thay đổi trên Git được phản ánh tự động trong cluster, không cần \texttt{kubectl apply} thủ công.
+
+\noindent\textbf{Video:} \url{https://drive.google.com/file/d/1lsUJLs5TdFJpjOUdnvnm9hsVeGVMRlen/view?usp=sharing}
+
+\subsection{Kiểm thử hệ thống Giám sát (Observability)}
+
+\textbf{Nội dung kiểm thử:}
+\begin{itemize}
+    \item Truy cập Grafana — xác nhận dashboard hiển thị metrics Prometheus (CPU, RAM, request rate).
+    \item Truy vấn Loki: lọc log theo \texttt{namespace="yas"} và \texttt{container="cart"}.
+    \item Truy vấn Tempo: xem distributed trace của một request xuyên qua \texttt{storefront-bff} → \texttt{cart} → \texttt{product}.
+    \item Xác nhận OpenTelemetry Collector nhận và forward trace/log đúng sang Tempo/Loki.
+\end{itemize}
+
+\textbf{Kết quả:} Toàn bộ observability stack hoạt động; logs, metrics và traces hiển thị đầy đủ và correlate được với nhau qua \texttt{traceId}.
+
+\noindent\textbf{Video:} \url{https://drive.google.com/file/d/1mOVt5pyWsh8jn-RR6yO7Rr6ffor33_WP/view?usp=sharing}
+
+\subsection{Kiểm thử Service Mesh (Istio và Kiali)}
+
+\textbf{Nội dung kiểm thử:}
+\begin{itemize}
+    \item Xác nhận tất cả pod trong namespace \texttt{yas} có \texttt{READY = 2/2} (app container + \texttt{istio-proxy} sidecar).
+    \item Kiểm tra mTLS STRICT: thử gọi trực tiếp giữa service không qua sidecar → bị từ chối (\texttt{Connection reset}).
+    \item Kiểm tra AuthorizationPolicy: service không có quyền → trả \texttt{403 RBAC: access denied}.
+    \item Xem Kiali graph hiển thị topology và traffic flow giữa toàn bộ 20+ microservices.
+    \item Xác nhận VirtualService retry policy: kill pod đang xử lý request → Envoy tự retry, client nhận response thành công.
+\end{itemize}
+
+\textbf{Kết quả:} Service mesh hoạt động đúng — mTLS, AuthorizationPolicy, retry policy đều được thực thi; Kiali hiển thị graph không có cảnh báo KIA0601.
+
+\noindent\textbf{Video:} \url{https://drive.google.com/drive/folders/1AbZ96nOeWzklKTnZjsDcrHuzYqgJ9KHh?usp=sharing}
+
+
+
+
+
+
+
+% ============================================================
+\section{Metrics \& Đánh giá Hệ thống}
+
+\subsection{Benchmark Thực tế}
+
+Bảng dưới ghi lại các chỉ số đo được trong quá trình triển khai và vận hành, so sánh trước và sau khi áp dụng các tối ưu hoá.
+
+\begin{table}[H]
+\centering
+\renewcommand{\arraystretch}{1.4}
+\begin{tabular}{|p{4.5cm}|p{3cm}|p{3cm}|p{5cm}|}
+\hline
+\textbf{Metric} & \textbf{Trước} & \textbf{Sau} & \textbf{Ghi chú} \\
+\hline
+CI build time (Maven + Docker push) & \textasciitilde{}7 phút & \textasciitilde{}3--4 phút & Sau khi bật Maven cache trong GitHub Actions \\
+\hline
+RAM cluster idle (Minikube, 20 services) & \textasciitilde{}9--10 GB & — & Trước khi chuyển sang K3s \\
+\hline
+RAM cluster idle (K3s, 20 services + stack) & — & \textasciitilde{}5--6 GB & K3s overhead \textasciitilde{}512 MB, không có VM layer \\
+\hline
+ArgoCD sync time (sau push Git) & — & \textasciitilde{}30--60 giây & Phụ thuộc poll interval mặc định 3 phút \\
+\hline
+Pod startup time (Spring Boot service) & — & \textasciitilde{}40--80 giây & JVM warm-up + config server load \\
+\hline
+Istio sidecar overhead (RAM/pod) & 0 MB & \textasciitilde{}50--80 MB & Mỗi Envoy proxy thêm khoảng 50--80 MB RSS \\
+\hline
+CI trigger khi thay đổi 1 service & Toàn bộ workflows & Chỉ 1 workflow liên quan & Per-service \texttt{paths:} filter \\
+\hline
+\end{tabular}
+\caption{Benchmark chỉ số thực tế trong quá trình triển khai}
+\label{tab:benchmarks}
+\end{table}
+
+\subsection{Giới hạn Hệ thống (Limitations)}
+
+Hệ thống hiện tại đạt mức \textbf{production-like} --- đầy đủ CI/CD, service mesh, observability --- nhưng còn một số giới hạn cần nhận thức rõ trước khi đưa vào môi trường production thật:
+
+\renewcommand{\arraystretch}{1.4}
+\begin{longtable}{|p{4.5cm}|p{5.5cm}|p{5.5cm}|}
+\caption{Giới hạn hệ thống và hướng khắc phục}
+\label{tab:limitations} \\
+\hline
+\textbf{Giới hạn} & \textbf{Tác động} & \textbf{Hướng khắc phục cho production} \\
+\hline
+\endfirsthead
+\hline
+\textbf{Giới hạn} & \textbf{Tác động} & \textbf{Hướng khắc phục cho production} \\
+\hline
+\endhead
+\hline
+\endfoot
+\hline
+\endlastfoot
+\textbf{Single control plane} & Nếu \texttt{fedora} down, cluster mất khả năng điều phối & K3s HA mode: 3+ server nodes + external load balancer \\
+\hline
+\textbf{Không có HA etcd} & K3s dùng embedded SQLite, không replicate & Chuyển sang embedded etcd cluster hoặc external etcd \\
+\hline
+\textbf{Worker quoctan bị cordon} & Cluster thực tế chỉ có 2 node active & Đồng nhất L2 subnet tất cả nodes hoặc dùng VXLAN \\
+\hline
+\textbf{Không có backup/DR} & Mất dữ liệu PostgreSQL nếu PVC bị xóa & Velero backup + off-site storage \\
+\hline
+\textbf{Không có cert-manager} & TLS certificate không auto-renew & Cài cert-manager + Let's Encrypt cho ingress \\
+\hline
+\textbf{Flannel không hỗ trợ NetworkPolicy} & Không thể giới hạn traffic ở network level & Chuyển CNI sang Calico hoặc Cilium \\
+\hline
+\textbf{North-south TLS terminate tại ingress} & Traffic ingress--backend không được mTLS bởi Istio & HTTPS ingress với cert-manager + Istio Gateway \\
+\hline
+\textbf{Không có PodDisruptionBudget} & Rolling update có thể khiến service tạm thời unavailable & Thêm PDB cho các service critical \\
+\hline
+\end{longtable}
+
+\section{Vấn đề gặp phải \& Cách khắc phục}
+
+\subsection{Tổng quan}
+
+Trong quá trình triển khai, nhóm gặp tổng cộng \textbf{29 vấn đề} (bao gồm 6 vấn đề Strimzi ký hiệu 2a--2f) thuộc 5 nhóm chính: hạ tầng Infrastructure, K3s cluster, Istio service mesh, CI/CD pipeline, và các dịch vụ ứng dụng. Bảng dưới tóm tắt toàn bộ vấn đề, nguyên nhân và trạng thái giải quyết.
+
+\begin{center}
+\renewcommand{\arraystretch}{1.3}
+\begin{longtable}{|c|p{3cm}|p{3.8cm}|p{3.8cm}|c|}
+\caption{Tổng kết 29 vấn đề gặp phải và cách khắc phục}
+\label{tab:issues-summary} \\
+\hline
+\multicolumn{5}{|c|}{\textbf{Nhóm A — Hạ tầng Infrastructure}} \\
+\hline
+\textbf{\#} & \textbf{Vấn đề} & \textbf{Nguyên nhân} & \textbf{Giải pháp} & \textbf{Trạng thái} \\
+\hline
+\endfirsthead
+\hline
+\multicolumn{5}{|r|}{\small\itshape (tiếp theo)} \\
+\hline
+\textbf{\#} & \textbf{Vấn đề} & \textbf{Nguyên nhân} & \textbf{Giải pháp} & \textbf{Trạng thái} \\
+\hline
+\endhead
+\hline
+\multicolumn{5}{|r|}{\small\itshape (còn tiếp)} \\
+\endfoot
+\hline
+\endlastfoot
+1 & PostgreSQL không tạo được & Helm template syntax \texttt{\{\{ \}\}} có khoảng trắng & Xóa khoảng trắng trong template & ✅ \\
+\hline
+2a & Strimzi không hỗ trợ ZooKeeper & Strimzi v0.46+ loại bỏ ZooKeeper & Chuyển sang KRaft mode & ✅ \\
+\hline
+2b & Strimzi lỗi \texttt{NoSuchFieldError} & fabric8 library cũ, không tương thích K8s 1.35 & Dùng K3s v1.32.5 + Strimzi 0.51 & ✅ \\
+\hline
+2c & Kafka version không hỗ trợ & Strimzi 0.51 chỉ hỗ trợ Kafka 4.0/4.1 & Nâng lên Kafka 4.1.0 & ✅ \\
+\hline
+2d & Kafka CRD race condition & setup-cluster.sh deploy chart ngay trước khi CRD ready & Chờ operator pod Ready trước khi deploy & ✅ \\
+\hline
+2e & Strimzi 1.0.0 loại bỏ \texttt{v1beta2} & Strimzi 1.0.0 chỉ còn \texttt{v1} API & \texttt{sed} đổi apiVersion trong chart templates & ✅ \\
+\hline
+2f & KafkaConnect thiếu required fields & Strimzi 1.0.0 yêu cầu thêm top-level spec fields & Thêm \texttt{groupId}, \texttt{*StorageTopic} vào \texttt{spec} & ✅ \\
+\hline
+3 & Promtail CrashLoop & inotify limit mặc định quá thấp & \texttt{fs.inotify.*} persist qua sysctl & ✅ \\
+\hline
+4 & ArgoCD ApplicationSet CrashLoop & CRD \textgreater{}256KB vượt annotation limit & \texttt{kubectl apply --server-side} & ✅ \\
+\hline
+5 & Loki thiếu \texttt{schema\_config} & Loki chart 6.x bắt buộc trường này & \texttt{--set loki.useTestSchema=true} & ✅ \\
+\hline
+6 & Grafana leaked secrets & Chart mới validate plain password & \texttt{assertNoLeakedSecrets=false} & ✅ \\
+\hline
+7 & OTel Collector lỗi loki receiver & Standard image không bundle loki & Dùng \texttt{otlphttp/loki} exporter & ✅ \\
+\hline
+\multicolumn{5}{|c|}{\textbf{Nhóm B — K3s Cluster}} \\
+\hline
+8 & K3s v1.35.x CCM race condition & \texttt{cloud-controller-manager} crash loop trên v1.35 & Dùng K3s v1.32.5 LTS & ✅ \\
+\hline
+9 & Minikube OOM & RAM giới hạn \textasciitilde{}4GB bị vượt & Chuyển sang K3s & ✅ \\
+\hline
+10 & K3s agent port 6444 conflict & Port bị giữ bởi process cũ & Kill process + restart agent & ✅ \\
+\hline
+11 & Fedora firewall block pod traffic & firewalld không tự nhận CNI interface & Add cni0/flannel.1 vào trusted zone & ✅ \\
+\hline
+12 & TLS handshake timeout & Pod MTU 1500 \textgreater{} cni0 MTU 1450 & MSS clamping via iptables & ✅ \\
+\hline
+13 & OIDC DNS không resolve trong cluster & \texttt{identity.yas.local.com} không tồn tại trong cluster DNS & Patch CoreDNS hosts block & ✅ \\
+\hline
+14 & setup-cluster.sh treo chờ Keycloak & \texttt{/etc/hosts} chưa set, DNS không resolve từ host & Update \texttt{/etc/hosts} trước khi deploy & ✅ \\
+\hline
+15 & Cross-node 503 timeout & Node \texttt{quoctan} không có L2 route & Cordon node \texttt{quoctan} & ✅ \\
+\hline
+\multicolumn{5}{|c|}{\textbf{Nhóm C — Istio Service Mesh}} \\
+\hline
+16 & 502 Bad Gateway sau mTLS STRICT & ingress-nginx không có Envoy sidecar & Inject sidecar + DestinationRule & ✅ \\
+\hline
+17 & Kiali KIA0601 port name warning & Tên port không có protocol prefix & Rename \texttt{metric} \textrightarrow{} \texttt{http-metric} & ✅ \\
+\hline
+18 & Kiali DestinationRule wildcard lỗi & Kiali v2.x không validate wildcard host & Tách 1 wildcard \textrightarrow{} 21 DR riêng & ✅ \\
+\hline
+19 & AuthorizationPolicy không match & Selector label sai, không khớp pod & Dùng \texttt{app.kubernetes.io/name} & ✅ \\
+\hline
+20 & storefront-bff route đến nginx & Spring Cloud Gateway 4.x đổi config path & Patch sang \texttt{server.webflux.routes} & ✅ \\
+\hline
+\multicolumn{5}{|c|}{\textbf{Nhóm D — CI/CD Pipeline}} \\
+\hline
+21 & GitHub Actions: no test report & Thiếu \texttt{checks: write} permission & Thêm \texttt{permissions} block vào workflow & ✅ \\
+\hline
+22 & Self-hosted runner session conflict & Process \texttt{Runner.Listener} cũ chưa kill & \texttt{pkill -f Runner.Listener} + restart & ✅ \\
+\hline
+23 & Staging: image tag không tồn tại & CI chưa push image với version tag & Dùng \texttt{:latest} hoặc rebuild với tag đúng & ✅ \\
+\hline
+24 & chart-releaser: gh-pages not found & Branch \texttt{gh-pages} chưa tồn tại & Tạo orphan branch \texttt{gh-pages} & ✅ \\
+\hline
+\multicolumn{5}{|c|}{\textbf{Nhóm E — Application Services}} \\
+\hline
+25 & storefront-bff: \texttt{storefront-nextjs} not found & K8s service tên \texttt{storefront-ui}, không phải \texttt{storefront-nextjs} & Tạo ExternalName Service alias & ✅ \\
+\hline
+26 & payment-paypal CrashLoopBackOff & JAR không có \texttt{Main-Class} trong MANIFEST & Scale deployment về 0 replica & ✅ \\
+\hline
+27 & Payment Liquibase checksum mismatch & Image mới thay đổi migration + DB state cũ & Dùng image tag cố định & ✅ \\
+\hline
+28 & ServiceMonitor CRD not found & Prometheus Operator không được cài & \texttt{serviceMonitor.enabled: false} & ✅ \\
+\hline
+29 & BFF ingress conflict (path \texttt{/}) & backoffice-bff và storefront-bff cùng host + path & Tách backoffice-bff ra subdomain riêng & ✅ \\
+\hline
+\end{longtable}
+\end{center}
+
+% ============================================================
+\subsection{Vấn đề Infrastructure}
+
+% ----------------------------------------------------------
+\subsubsection{PostgreSQL cluster không tạo được — Helm template syntax error}
+
+\textbf{Triệu chứng:} Sau khi chạy \texttt{setup-cluster.sh}, chỉ có \texttt{postgres-operator} pod Running nhưng không có pod database nào được tạo. Không có error rõ ràng trên stdout.
+
+\textbf{Nguyên nhân:} Trong file \texttt{postgres/postgresql/templates/postgresql.yaml}, hai trường cấu hình có khoảng trắng thừa trong cặp ngoặc nhọn Helm. Helm không nhận ra đây là template expression và coi là string literal:
+
+\begin{lstlisting}[language=yaml]
+# SAI: Helm coi day la string literal, khong phai template expression
+recommendation: { { .Values.username } }
+webhook:         { { .Values.username } }
+
+# DUNG:
+recommendation: {{ .Values.username }}
+webhook:         {{ .Values.username }}
+\end{lstlisting}
+
+\textbf{Cách khắc phục:}
+
+\begin{lstlisting}[language=bash]
+# Xoa khoang trang thua trong template
+sed -i 's/{ { .Values.username } }/{{ .Values.username }}/g' \
+  k8s/deploy/postgres/postgresql/templates/postgresql.yaml
+
+# Reinstall
+helm upgrade --install postgres ./postgres/postgresql \
+  --namespace postgres --set replicas=1 --set username=yasadminuser
+\end{lstlisting}
+
+% ----------------------------------------------------------
+\subsubsection{Strimzi Kafka — Chuỗi 3 vấn đề tương thích}
+
+Đây là chuỗi vấn đề phức tạp nhất, phát sinh do tương tác giữa nhiều phiên bản component. Nhóm phải thử lần lượt từng bước để xác định đúng tổ hợp tương thích.
+
+\vspace{0.5em}
+\textbf{Vấn đề 2a — Strimzi 0.51.0 không hỗ trợ ZooKeeper mode:}
+
+Repo gốc YAS sử dụng Kafka với ZooKeeper mode. Tuy nhiên Strimzi từ v0.46.0 đã loại bỏ hoàn toàn hỗ trợ ZooKeeper, chỉ còn KRaft mode. ApplicationSet controller crash ngay khi apply manifest cũ.
+
+\vspace{0.5em}
+\textbf{Vấn đề 2b — Strimzi 0.44.0/0.45.0 không tương thích K8s 1.35:}
+
+\begin{lstlisting}[language=bash]
+# Logs Strimzi 0.44.0 tren K8s 1.35:
+java.lang.NoSuchFieldError: emulationMajor
+  at io.fabric8.kubernetes.client...
+\end{lstlisting}
+
+fabric8 library cũ chưa hỗ trợ field mới trong K8s 1.35 API, dẫn đến JVM crash ngay khi khởi động. Buộc phải hạ K8s hoặc nâng Strimzi.
+
+\vspace{0.5em}
+\textbf{Vấn đề 2c — Strimzi 0.51.0 không hỗ trợ Kafka 3.9.0:}
+
+\begin{lstlisting}[language=bash]
+# Logs Strimzi 0.51.0:
+"Unsupported Kafka version 3.9.0.
+ Supported versions are: [4.0.0, 4.1.0]"
+\end{lstlisting}
+
+\textbf{Giải pháp cuối cùng:} Chuyển sang Strimzi 0.51.0 + Kafka 4.1.0 + KRaft mode. Cấu hình bắt buộc thêm annotation và KafkaNodePool:
+
+\begin{lstlisting}[language=yaml]
+# KafkaNodePool — thay the ZooKeeper
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaNodePool
+metadata:
+  name: kafka-cluster-dual-role
+  labels:
+    strimzi.io/cluster: kafka-cluster
+spec:
+  replicas: 1
+  roles:
+    - controller   # thay the ZooKeeper
+    - broker
+  storage:
+    type: persistent-claim
+    size: 10Gi
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: Kafka
+metadata:
+  name: kafka-cluster
+  annotations:
+    strimzi.io/kraft: enabled       # Required: enable KRaft mode
+    strimzi.io/node-pools: enabled  # Required: enable node pool support
+spec:
+  kafka:
+    version: "4.1.0"                # upgraded from 3.9.0
+    # ZooKeeper section removed (KRaft mode)
+\end{lstlisting}
+
+% ----------------------------------------------------------
+\subsubsection{Strimzi Kafka — Kafka CRD race condition trong setup-cluster.sh}
+
+\textbf{Triệu chứng:}
+
+\begin{lstlisting}[language=bash]
+Error: unable to build kubernetes objects from release manifest:
+  no matches for kind "Kafka" in version "kafka.strimzi.io/v1beta2"
+  ensure CRDs are installed first
+  no matches for kind "KafkaNodePool" in version "kafka.strimzi.io/v1beta2"
+\end{lstlisting}
+
+\textbf{Nguyên nhân:} \texttt{setup-cluster.sh} cài Strimzi operator rồi \textbf{ngay lập tức} chạy \texttt{helm install kafka-cluster} mà không chờ CRD đăng ký xong. Strimzi operator cần 30–60 giây để đăng ký CRD vào API server sau khi pod Running. Khi chạy \texttt{helm install} quá sớm, CRD chưa tồn tại.
+
+\textbf{Cách khắc phục:}
+
+\begin{lstlisting}[language=bash]
+# Cho den khi Strimzi operator pod sẵn sàng
+kubectl wait --for=condition=Ready pod \
+  -n kafka -l name=strimzi-cluster-operator \
+  --timeout=120s
+
+# Re-deploy kafka-cluster
+helm upgrade --install kafka-cluster ./kafka/kafka-cluster \
+  --namespace kafka \
+  --set kafka.replicas=1 \
+  --set postgresql.username=yasadminuser
+\end{lstlisting}
+
+% ----------------------------------------------------------
+\subsubsection{Strimzi 1.0.0 — Loại bỏ hoàn toàn \texttt{v1beta2} API}
+
+\textbf{Triệu chứng:} Sau khi Strimzi operator đã cài và CRD đã có, vẫn gặp lỗi:
+
+\begin{lstlisting}[language=bash]
+no matches for kind "Kafka" in version "kafka.strimzi.io/v1beta2"
+\end{lstlisting}
+
+Kiểm tra thấy CRD chỉ serve \texttt{kafka.strimzi.io/v1}, không còn \texttt{v1beta2}:
+
+\begin{lstlisting}[language=bash]
+kubectl api-resources | grep kafka
+# Kafka   kafka.strimzi.io/v1   <- v1 khong phai v1beta2
+\end{lstlisting}
+
+\textbf{Nguyên nhân:} Strimzi 1.0.0 (phiên bản mới nhất khi cài qua \texttt{helm install}) đã chính thức loại bỏ \texttt{v1beta2} và chỉ còn \texttt{v1}. Chart templates trong project vẫn dùng \texttt{v1beta2}.
+
+\textbf{Cách khắc phục:}
+
+\begin{lstlisting}[language=bash]
+# Thay the apiVersion trong tat ca template files
+sed -i 's|kafka.strimzi.io/v1beta2|kafka.strimzi.io/v1|g' \
+  k8s/deploy/kafka/kafka-cluster/templates/kafka-cluster.yaml \
+  k8s/deploy/kafka/kafka-cluster/templates/debezium-connect-cluster.yaml \
+  k8s/deploy/kafka/kafka-cluster/templates/debezium-connector-*.yaml
+\end{lstlisting}
+
+Sau khi sửa, re-deploy:
+
+\begin{lstlisting}[language=bash]
+helm upgrade --install kafka-cluster ./kafka/kafka-cluster --namespace kafka
+\end{lstlisting}
+
+% ----------------------------------------------------------
+\subsubsection{Strimzi 1.0.0 — KafkaConnect thiếu required fields}
+
+\textbf{Triệu chứng:} Sau khi fix API version, KafkaConnect vẫn fail:
+
+\begin{lstlisting}[language=bash]
+KafkaConnect.kafka.strimzi.io "debezium-connect-cluster" is invalid:
+  [spec.groupId: Required value,
+   spec.configStorageTopic: Required value,
+   spec.statusStorageTopic: Required value,
+   spec.offsetStorageTopic: Required value]
+\end{lstlisting}
+
+\textbf{Nguyên nhân:} Strimzi 1.0.0 yêu cầu \texttt{groupId}, \texttt{offsetStorageTopic}, \texttt{configStorageTopic}, \texttt{statusStorageTopic} là top-level fields trong \texttt{spec}, thay vì chỉ nằm trong \texttt{spec.config} như phiên bản cũ.
+
+\textbf{Cách khắc phục:}
+
+\begin{lstlisting}[language=yaml]
+# debezium-connect-cluster.yaml — them 4 fields vao spec:
+spec:
+  replicas: 1
+  bootstrapServers: kafka-cluster-kafka-bootstrap:9092
+  image: {{ .Values.debeziumConnect.image }}
+  # 4 fields bat buoc moi cua Strimzi 1.0.0:
+  groupId: connect-cluster
+  offsetStorageTopic: kafka_connect_offsets
+  configStorageTopic: kafka_connect_configs
+  statusStorageTopic: kafka_connect_status
+  config:
+    # cac config cu giu nguyen
+\end{lstlisting}
+
+% ----------------------------------------------------------
+\subsubsection{Promtail CrashLoopBackOff — ``too many open files''}
+
+\textbf{Triệu chứng:}
+
+\begin{lstlisting}[language=bash]
+# Pod logs:
+failed to create inotify instance: too many open files
+\end{lstlisting}
+
+\textbf{Nguyên nhân:} Promtail dùng \texttt{inotify} để theo dõi file log trên tất cả pod trên node. Giới hạn mặc định của Linux (\texttt{max\_user\_instances=128}) quá thấp khi cluster có nhiều pod chạy đồng thời.
+
+\textbf{Cách khắc phục:}
+
+\begin{lstlisting}[language=bash]
+# Ghi vao sysctl.d de persist sau reboot
+echo "fs.inotify.max_user_watches=524288"  \
+  | sudo tee -a /etc/sysctl.d/99-k3s.conf
+echo "fs.inotify.max_user_instances=1024"  \
+  | sudo tee -a /etc/sysctl.d/99-k3s.conf
+
+# Ap dung ngay, khong can reboot
+sudo sysctl --system
+
+# Restart Promtail
+kubectl rollout restart daemonset/promtail -n observability
+\end{lstlisting}
+
+Lệnh \texttt{sysctl --system} reload toàn bộ kernel parameter từ \texttt{/etc/sysctl.d/} và áp dụng ngay lập tức, không cần reboot hệ thống.
+
+% ----------------------------------------------------------
+\subsubsection{ArgoCD ApplicationSet Controller CrashLoopBackOff}
+
+\textbf{Triệu chứng:} \texttt{argocd-applicationset-controller} liên tục CrashLoop khi apply CRD bằng \texttt{kubectl apply} thông thường.
+
+\textbf{Nguyên nhân:} CRD ArgoCD có kích thước \textgreater{}256KB. Lệnh \texttt{kubectl apply} mặc định lưu toàn bộ manifest vào annotation \texttt{kubectl.kubernetes.io/last-applied-configuration}, bị giới hạn ở 262144 bytes. Khi CRD vượt giới hạn này, annotation bị cắt bớt, gây corrupt.
+
+\textbf{Cách khắc phục:}
+
+\begin{lstlisting}[language=bash]
+# Dung --server-side de bypass annotation size limit
+kubectl apply \
+  -k "https://github.com/argoproj/argo-cd/manifests/crds?ref=stable" \
+  --server-side
+
+kubectl rollout restart \
+  deployment/argocd-applicationset-controller -n argocd
+\end{lstlisting}
+
+Flag \texttt{--server-side} chuyển logic apply sang API server, không lưu annotation \texttt{last-applied-configuration}, do đó không bị giới hạn 262144 bytes.
+
+% ----------------------------------------------------------
+\subsubsection{Loki chart 6.x yêu cầu schema\_config}
+
+\textbf{Triệu chứng:}
+
+\begin{lstlisting}[language=bash]
+Error: UPGRADE FAILED: template: loki/templates/...
+  schema_config must be defined
+\end{lstlisting}
+
+\textbf{Nguyên nhân:} Loki chart 6.x bắt buộc phải có \texttt{schema\_config} định nghĩa storage schema. File \texttt{loki.values.yaml} gốc từ repo YAS được viết cho Loki chart cũ hơn, không có trường này.
+
+\textbf{Cách khắc phục:}
+
+\begin{lstlisting}[language=bash]
+helm upgrade --install loki grafana/loki \
+  --namespace observability \
+  -f ./observability/loki.values.yaml \
+  --set loki.useTestSchema=true
+\end{lstlisting}
+
+Flag \texttt{--set loki.useTestSchema=true} tự động tạo schema mặc định \texttt{tsdb} phù hợp cho môi trường dev/staging, tránh phải cấu hình thủ công schema phức tạp.
+
+% ----------------------------------------------------------
+\subsubsection{Grafana — leaked secrets validation}
+
+\textbf{Triệu chứng:}
+
+\begin{lstlisting}[language=bash]
+Error: UPGRADE FAILED: template: ...
+  Sensitive field 'database.password' must be provided
+  via Secret, not plain values
+\end{lstlisting}
+
+\textbf{Nguyên nhân:} Grafana chart phiên bản mới thêm security validation, từ chối field \texttt{database.password} được định nghĩa trực tiếp (plain text) trong \texttt{values.yaml}. Chart yêu cầu secret phải được inject qua Kubernetes Secret resource.
+
+\textbf{Cách khắc phục:}
+
+\begin{lstlisting}[language=bash]
+helm upgrade --install prometheus \
+  prometheus-community/kube-prometheus-stack \
+  --namespace observability \
+  -f ./observability/prometheus.values.yaml \
+  --set grafana.assertNoLeakedSecrets=false
+\end{lstlisting}
+
+% ----------------------------------------------------------
+\subsubsection{OpenTelemetry Collector — loki receiver/exporter không tồn tại}
+
+\textbf{Triệu chứng:}
+
+\begin{lstlisting}[language=bash]
+Error: unknown type "loki" for component "receivers"
+\end{lstlisting}
+
+\textbf{Nguyên nhân:} OTel Collector standard image không bundle \texttt{loki} receiver/exporter. Đồng thời nhiều thay đổi breaking giữa các version cần được cập nhật:
+
+\begin{table}[H]
+\centering
+\renewcommand{\arraystretch}{1.3}
+\begin{tabular}{|p{4cm}|p{4cm}|p{6cm}|}
+\hline
+\textbf{Cấu hình cũ} & \textbf{Cấu hình mới} & \textbf{Lý do} \\
+\hline
+\texttt{receivers.loki} & Xóa & Không có trong standard image \\
+\hline
+\texttt{exporters.loki} & \texttt{exporters.otlphttp/loki} & Dùng OTLP gửi đến Loki gateway \\
+\hline
+\texttt{exporters.logging} & \texttt{exporters.debug} & \texttt{logging} bị rename \\
+\hline
+\texttt{processors.batch: null} & \texttt{processors.batch: \{\}} & Tránh null object warning \\
+\hline
+\texttt{v1alpha1} & \texttt{v1beta1} & \texttt{v1alpha1} deprecated \\
+\hline
+\end{tabular}
+\caption{Thay đổi cấu hình OpenTelemetry Collector}
+\end{table}
+
+\textbf{Cách khắc phục:} Phải xóa CR cũ trước khi reinstall để tránh Helm strategic merge giữ lại cấu hình cũ:
+
+\begin{lstlisting}[language=bash]
+kubectl delete opentelemetrycollectors opentelemetry -n observability
+helm uninstall opentelemetry-collector -n observability
+helm upgrade --install opentelemetry-collector \
+  ./observability/opentelemetry \
+  --namespace observability
+\end{lstlisting}
+
+% ============================================================
+\subsection{Vấn đề K3s Cluster}
+
+% ----------------------------------------------------------
+\subsubsection{K3s v1.35.x — Race condition trong cloud-controller-manager}
+
+\textbf{Triệu chứng:} K3s crash loop ngay sau khi cài, log có:
+
+\begin{lstlisting}[language=bash]
+E0518 cloud-controller-manager.go:
+  failed to start cloud controller manager
+  403 Forbidden during bootstrap RBAC
+F0518 main.go: cloud-controller-manager exited
+\end{lstlisting}
+
+\textbf{Nguyên nhân:} K3s v1.35.x có race condition trong \texttt{cloud-controller-manager}: process khởi động trước khi RBAC permission được cấp đủ, nhận 403 Forbidden và tự thoát. Vì đây là critical component, K3s bị kéo vào crash loop vĩnh viễn. Bug này chưa được fix trên nhánh v1.35.
+
+\textbf{Cách khắc phục:}
+
+\begin{lstlisting}[language=bash]
+# Gỡ K3s v1.35.x
+/usr/local/bin/k3s-uninstall.sh
+
+# Cài lại K3s v1.32.5 LTS (stable, không có bug này)
+curl -sfL https://get.k3s.io \
+  | INSTALL_K3S_VERSION=v1.32.5+k3s1 sh -s - \
+    --disable=traefik \
+    --write-kubeconfig-mode=644
+\end{lstlisting}
+
+Luôn cố định version K3s trong môi trường production. K3s v1.32.5 là bản LTS stable hiện tại.
+
+% ----------------------------------------------------------
+\subsubsection{Cluster quá tải — API server ngừng hoạt động (Minikube OOM)}
+
+\textbf{Triệu chứng:} Sau khi cài thêm Loki (9 pods) và Prometheus (6 pods), \texttt{kubectl} không phản hồi:
+
+\begin{lstlisting}[language=bash]
+The connection to the server localhost:8443 was refused
+\end{lstlisting}
+
+\textbf{Nguyên nhân:} Minikube chạy trong Docker container với giới hạn RAM \textasciitilde{}4GB. Tổng memory request của observability stack vượt giới hạn, kernel OOM killer tắt \texttt{kubelet} và API server. Không thể tăng giới hạn do máy host cũng không có thêm RAM.
+
+\textbf{Cách khắc phục:} Chuyển toàn bộ sang K3s. K3s có overhead chỉ \textasciitilde{}512MB (so với \textasciitilde{}2GB của Minikube), giải phóng đáng kể tài nguyên cho workload. Thêm 2 worker node để phân phối pod ra nhiều máy.
+
+% ----------------------------------------------------------
+\subsubsection{K3s agent không start — port 6444 đang bị chiếm}
+
+\textbf{Triệu chứng:}
+
+\begin{lstlisting}[language=bash]
+$ systemctl status k3s-agent
+# Output:
+listen tcp 0.0.0.0:6444: bind: address already in use
+\end{lstlisting}
+
+\textbf{Nguyên nhân:} Port 6444 bị giữ bởi tiến trình K3s cũ chưa được dọn hoàn toàn sau khi stop service, hoặc do process zombie từ lần cài trước.
+
+\textbf{Cách khắc phục:}
+
+\begin{lstlisting}[language=bash]
+# Tim process dang chiem port 6444
+ss -tlnp | grep 6444
+
+# Kill process cu
+kill -9 <PID>
+
+# Khoi dong lai agent
+sudo systemctl restart k3s-agent
+\end{lstlisting}
+
+% ----------------------------------------------------------
+\subsubsection{Firewall Fedora block inter-pod traffic}
+
+\textbf{Triệu chứng:} ingress-nginx trả về 502, logs controller chứa:
+
+\begin{lstlisting}[language=bash]
+connect() failed (113: Host is unreachable) while connecting to upstream
+\end{lstlisting}
+
+\textbf{Nguyên nhân:} Fedora sử dụng \texttt{firewalld} với chính sách mặc định strict. Các interface mạng CNI (\texttt{cni0}, \texttt{flannel.1}) được K3s tạo ra sau khi firewalld khởi động, không tự động được thêm vào trusted zone. Traffic từ ingress-nginx đến pod backend bị chặn ở lớp firewall.
+
+\textbf{Cách khắc phục:}
+
+\begin{lstlisting}[language=bash]
+# Them CNI interfaces vao trusted zone
+sudo firewall-cmd --permanent --zone=trusted --add-interface=cni0
+sudo firewall-cmd --permanent --zone=trusted --add-interface=flannel.1
+
+# Them Pod CIDR va Service CIDR
+sudo firewall-cmd --permanent --zone=trusted \
+  --add-source=10.42.0.0/16
+sudo firewall-cmd --permanent --zone=trusted \
+  --add-source=10.43.0.0/16
+
+sudo firewall-cmd --reload
+\end{lstlisting}
+
+% ----------------------------------------------------------
+\subsubsection{TLS Handshake Timeout — MTU Black Hole}
+
+\textbf{Triệu chứng:} ArgoCD không thể sync từ GitHub, controller log có:
+
+\begin{lstlisting}[language=bash]
+TLS handshake timeout
+\end{lstlisting}
+
+\textbf{Nguyên nhân:} MTU mismatch giữa pod interface và CNI overlay interface:
+
+\begin{lstlisting}[language=bash]
+Pod eth0 MTU:  1500
+Host cni0 MTU: 1450  # flannel overlay
+
+# TLS ClientHello nho (~200 bytes) -> di duoc binh thuong
+# TLS Certificate lon (~4KB) -> packet bi phan manh
+#   -> fragment bi drop boi cni0
+# => TLS handshake treo vo han (black hole)
+\end{lstlisting}
+
+\textbf{Cách khắc phục:} MSS clamping — ép TCP tự điều chỉnh kích thước gói trong quá trình bắt tay SYN:
+
+\begin{lstlisting}[language=bash]
+sudo iptables -t mangle -A FORWARD \
+  -p tcp --tcp-flags SYN SYN \
+  -j TCPMSS --clamp-mss-to-pmtu
+\end{lstlisting}
+
+Persist sau reboot qua NetworkManager dispatcher:
+
+\begin{lstlisting}[language=bash]
+sudo tee /etc/NetworkManager/dispatcher.d/99-mss-clamp.sh << 'EOF'
+#!/bin/bash
+iptables -t mangle -C FORWARD -p tcp --tcp-flags SYN SYN \
+  -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null \
+|| iptables -t mangle -A FORWARD -p tcp --tcp-flags SYN SYN \
+  -j TCPMSS --clamp-mss-to-pmtu
+EOF
+
+sudo chmod +x /etc/NetworkManager/dispatcher.d/99-mss-clamp.sh
+\end{lstlisting}
+
+% ----------------------------------------------------------
+\subsubsection{CoreDNS — OIDC hostname không resolve trong cluster}
+
+\textbf{Triệu chứng:} Pod \texttt{storefront-bff} CrashLoopBackOff khi startup do không thể kết nối Keycloak:
+
+\begin{lstlisting}[language=bash]
+java.net.UnknownHostException: identity.yas.local.com
+\end{lstlisting}
+
+\textbf{Nguyên nhân:} Hostname \texttt{identity.yas.local.com} dùng cho OIDC discovery chỉ tồn tại trong \texttt{/etc/hosts} của máy host, không có trong DNS cluster. CoreDNS trả về NXDOMAIN dẫn đến ứng dụng crash vì không thể fetch OIDC configuration.
+
+\textbf{Cách khắc phục:} Thêm \texttt{hosts} block vào CoreDNS Corefile để map trực tiếp hostname tới địa chỉ ingress controller (NodePort IP):
+
+\begin{lstlisting}[language=bash]
+kubectl edit configmap coredns -n kube-system
+\end{lstlisting}
+
+\begin{lstlisting}[language=bash]
+# Corefile sau khi chinh sua:
+.:53 {
+    hosts {
+      172.16.0.240   api.yas.local.com
+      172.16.0.240   identity.yas.local.com
+      172.16.0.240   storefront.yas.local.com
+      172.16.0.240   backoffice.yas.local.com
+      fallthrough
+    }
+    forward . /etc/resolv.conf
+    cache 30
+    reload
+    loadbalance
+}
+\end{lstlisting}
+
+Block \texttt{reload} cho phép CoreDNS tự động nhận config mới khi ConfigMap thay đổi, không cần restart pod thủ công. Sau khi apply, kiểm tra DNS resolution từ bên trong cluster:
+
+\begin{lstlisting}[language=bash]
+kubectl run -it --rm dns-test --image=busybox --restart=Never \
+  -- nslookup identity.yas.local.com
+\end{lstlisting}
+
+% ----------------------------------------------------------
+\subsubsection{setup-cluster.sh bị treo chờ Keycloak — \texttt{/etc/hosts} chưa set}
+
+\textbf{Triệu chứng:} Script \texttt{deploy-yas-minimal.sh} in ra rồi bị treo vô tận:
+
+\begin{lstlisting}[language=bash]
+Waiting for Keycloak realm 'Yas' to be ready...
+# [treo mai, khong tien tiep]
+\end{lstlisting}
+
+\textbf{Nguyên nhân:} Script curl \texttt{http://identity.yas.local.com/realms/Yas/.well-known/openid-configuration} để kiểm tra Keycloak đã sẵn sàng. Hostname này chưa được thêm vào \texttt{/etc/hosts} của máy host nên DNS không phân giải được — curl timeout lặp lại mãi.
+
+\textbf{Cách khắc phục:} Phải update \texttt{/etc/hosts} \textbf{trước khi} chạy \texttt{deploy-yas-minimal.sh}:
+
+\begin{lstlisting}[language=bash]
+sudo tee -a /etc/hosts << 'EOF'
+172.16.0.240 storefront.yas.local.com
+172.16.0.240 backoffice.yas.local.com
+172.16.0.240 api.yas.local.com
+172.16.0.240 identity.yas.local.com
+172.16.0.240 pgadmin.yas.local.com
+172.16.0.240 dev.yas.local.com
+172.16.0.240 api.dev.yas.local.com
+172.16.0.240 backoffice.dev.yas.local.com
+172.16.0.240 staging.yas.local.com
+172.16.0.240 api.staging.yas.local.com
+172.16.0.240 backoffice.staging.yas.local.com
+EOF
+\end{lstlisting}
+
+Thứ tự deploy đúng:
+\begin{enumerate}
+  \item Cài K3s + ingress-nginx + inotify
+  \item \textbf{Update \texttt{/etc/hosts}} ← phải làm sớm
+  \item Chạy \texttt{setup-cluster.sh}
+  \item Chờ Strimzi CRD sẵn sàng, re-deploy kafka-cluster
+  \item Chạy \texttt{setup-keycloak.sh}
+  \item Chạy \texttt{deploy-yas-minimal.sh} ← hosts đã có, không bị treo
+\end{enumerate}
+
+% ----------------------------------------------------------
+\subsubsection{Cross-node 503 Timeout — Flannel host-gw L2 mismatch}
+
+\textbf{Triệu chứng:}
+
+\begin{lstlisting}[language=bash]
+503 upstream_reset_before_response_started{connection_failure}
+\end{lstlisting}
+
+Request từ ingress-nginx đến pod trên node \texttt{quoctan} luôn fail, trong khi pod trên \texttt{fedora} và \texttt{anhkhoa} hoạt động bình thường.
+
+\textbf{Nguyên nhân:} Flannel \texttt{host-gw} backend yêu cầu tất cả nodes phải nằm cùng một Layer-2 segment (cùng subnet). Node \texttt{quoctan} (\texttt{172.16.1.170/24}) thuộc subnet khác so với \texttt{fedora} (\texttt{172.16.0.240/24}) và \texttt{anhkhoa} (\texttt{172.16.0.90/24}). Flannel không thể tạo direct route L2, packet bị drop.
+
+\textbf{Cách khắc phục:}
+
+\begin{lstlisting}[language=bash]
+# Danh dau quoctan khong nhan pod moi
+kubectl cordon quoctan
+
+# Evict toan bo pod dang chay tren quoctan
+kubectl delete pod --all-namespaces \
+  --field-selector spec.nodeName=quoctan
+\end{lstlisting}
+
+Toàn bộ workload được Kubernetes tự động reschedule về \texttt{fedora} và \texttt{anhkhoa} — cùng subnet \texttt{172.16.0.0/24}, Flannel hoạt động bình thường.
+
+% ============================================================
+\subsection{Vấn đề Istio Service Mesh}
+
+% ----------------------------------------------------------
+\subsubsection{502 Bad Gateway sau khi bật mTLS STRICT}
+
+\textbf{Triệu chứng:} Sau khi apply \texttt{PeerAuthentication STRICT}, toàn bộ request qua ingress-nginx trả về 502 Bad Gateway.
+
+\textbf{Nguyên nhân:} ingress-nginx proxy tới Pod IP trực tiếp (PassthroughCluster), bỏ qua service identity. DestinationRule không được áp dụng, Envoy sidecar của pod backend từ chối kết nối không có mTLS certificate từ ingress.
+
+\textbf{Các hướng đã thử:}
+\begin{enumerate}
+  \item \textbf{[Không đạt]} Đổi toàn namespace sang \texttt{PERMISSIVE} --- traffic không được mã hóa, không đáp ứng yêu cầu bảo mật của đề bài.
+
+  \item \textbf{[Không áp dụng được]} Dùng \texttt{portLevelMtls} trong PeerAuthentication --- chỉ hoạt động ở service-level, không apply được namespace-wide.
+
+  \item \textbf{[Thành công]} Inject Envoy sidecar vào namespace \texttt{ingress-nginx} + tạo \texttt{DestinationRule} cho tất cả service + bật \texttt{service-upstream} annotation trên Ingress.
+\end{enumerate}
+
+\textbf{Cách khắc phục:}
+
+\begin{lstlisting}[language=bash]
+# Buoc 1: Inject sidecar cho ingress-nginx
+kubectl label namespace ingress-nginx \
+  istio-injection=enabled --overwrite
+kubectl rollout restart \
+  deployment ingress-nginx-controller -n ingress-nginx
+\end{lstlisting}
+
+\begin{lstlisting}[language=yaml]
+# Buoc 2: Annotation tren Ingress resource
+# Buoc ingress-nginx routing qua Service IP thay vi Pod IP
+annotations:
+  nginx.ingress.kubernetes.io/service-upstream: "true"
+\end{lstlisting}
+
+\begin{lstlisting}[language=yaml]
+# Buoc 3: DestinationRule cho tung service
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: cart
+  namespace: yas
+spec:
+  host: cart.yas.svc.cluster.local
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+\end{lstlisting}
+
+% ----------------------------------------------------------
+\subsubsection{Kiali cảnh báo KIA0601 — Port name sai format}
+
+\textbf{Triệu chứng:} Kiali dashboard hiển thị cảnh báo \textbf{KIA0601} trên tất cả 18 service backend:
+
+\begin{lstlisting}[language=bash]
+Port name must begin with a recognized protocol prefix
+(http, grpc, tcp, tls, ...)
+\end{lstlisting}
+
+\textbf{Nguyên nhân:} Port metrics của tất cả backend service trong Helm chart được đặt tên \texttt{metric}. Istio yêu cầu tên port phải bắt đầu bằng protocol prefix (\texttt{http-}, \texttt{grpc-}, \texttt{tcp-},...) để routing và observability hoạt động chính xác.
+
+\textbf{Cách khắc phục:} Patch live tất cả 18 service không cần downtime:
+
+\begin{lstlisting}[language=bash]
+for svc in cart customer inventory location media order product \
+           promotion rating recommendation sampledata search \
+           storefront-bff backoffice-bff tax webhook \
+           payment payment-paypal; do
+  kubectl patch svc "$svc" -n yas --type='json' \
+    -p='[{"op":"replace","path":"/spec/ports/1/name",
+          "value":"http-metric"}]'
+done
+\end{lstlisting}
+
+Sau khi patch, tất cả cảnh báo KIA0601 biến mất khỏi Kiali dashboard.
+
+% ----------------------------------------------------------
+\subsubsection{Kiali lỗi validation — DestinationRule wildcard host}
+
+\textbf{Triệu chứng:} Kiali v2.x hiển thị lỗi validation đỏ trên toàn bộ DestinationRule, traffic graph không render được.
+
+\textbf{Nguyên nhân:} Wildcard host \texttt{*.yas.svc.cluster.local} trong một DestinationRule duy nhất không được Kiali v2.x validate đúng cách. Kiali không thể map wildcard rule sang từng service cụ thể trong graph.
+
+\textbf{Cách khắc phục:} Xóa 1 DestinationRule wildcard, thay bằng 21 DestinationRule riêng cho từng service:
+
+\begin{lstlisting}[language=bash]
+# Xoa wildcard DR
+kubectl delete destinationrule wildcard-dr -n yas
+
+# Apply rieng cho tung service
+kubectl apply -f infra/k8s/istio/destination-rules/cart-dr.yaml
+kubectl apply -f infra/k8s/istio/destination-rules/order-dr.yaml
+# ... (21 service)
+\end{lstlisting}
+
+Sau khi tách, tất cả service hiển thị \textbf{[OK]} xanh trong Kiali và traffic graph render đúng.
+
+% ----------------------------------------------------------
+\subsubsection{AuthorizationPolicy không match workload}
+
+\textbf{Triệu chứng:} Sau khi apply AuthorizationPolicy, các service không giao tiếp được dù policy đã định nghĩa allow. \texttt{istiod} log cho thấy policy không match bất kỳ pod nào.
+
+\textbf{Nguyên nhân:} Policy dùng selector \texttt{app: cart} nhưng Helm chart tạo pod với label \texttt{app.kubernetes.io/name: cart} (Kubernetes recommended label convention). Hai label này hoàn toàn khác nhau, AuthorizationPolicy không tìm được workload để áp dụng.
+
+\textbf{Cách khắc phục:}
+
+\begin{lstlisting}[language=yaml]
+# Truoc (khong match):
+selector:
+  matchLabels:
+    app: cart
+
+# Sau (khop voi Helm chart label):
+selector:
+  matchLabels:
+    app.kubernetes.io/name: cart
+\end{lstlisting}
+
+% ----------------------------------------------------------
+\subsubsection{storefront-bff — Route đến service nginx (SCG 4.x breaking change)}
+
+\textbf{Triệu chứng:}
+
+\begin{lstlisting}[language=bash]
+java.net.UnknownHostException: nginx
+\end{lstlisting}
+
+API \texttt{cart} và \texttt{categories} trả về HTTP 500 từ BFF. Không có K8s service nào tên \texttt{nginx} trong cluster.
+
+\textbf{Nguyên nhân:} File \texttt{application-prod.yaml} của storefront-bff sử dụng config path của Spring Cloud Gateway 3.x:
+
+\begin{lstlisting}[language=yaml]
+# SCG 3.x (sai):
+spring.cloud.gateway.routes:
+  - id: cart_api
+    uri: http://nginx   # service "nginx" khong ton tai trong K8s
+\end{lstlisting}
+
+Spring Cloud Gateway 4.x đổi namespace cấu hình sang \texttt{server.webflux.routes}. Với config cũ, SCG 4.x bỏ qua toàn bộ routes block, fallback về default behavior dùng hostname \texttt{nginx}.
+
+\textbf{Cách khắc phục:}
+
+\begin{lstlisting}[language=yaml]
+# SCG 4.x (dung):
+spring.cloud.gateway.server.webflux.routes:
+  - id: cart_api
+    uri: http://cart
+  - id: categories_api
+    uri: http://product
+\end{lstlisting}
+
+% ============================================================
+\subsection{Vấn đề CI/CD Pipeline}
+
+% ----------------------------------------------------------
+\subsubsection{GitHub Actions — Thiếu quyền \texttt{checks: write}}
+
+\textbf{Triệu chứng:} Workflows \texttt{payment-ci.yaml} và \texttt{payment-paypal-ci.yaml} thất bại ở bước publish test report:
+
+\begin{lstlisting}[language=bash]
+# payment-ci.yaml:
+Error: No test report files were found
+
+# payment-paypal-ci.yaml:
+HttpError: Resource not accessible by integration
+\end{lstlisting}
+
+\textbf{Nguyên nhân:} Action \texttt{dorny/test-reporter} cần quyền \texttt{checks: write} để tạo check run trên GitHub. Workflow mặc định chỉ có quyền \texttt{contents: read}, không đủ quyền ghi test report.
+
+\textbf{Cách khắc phục:}
+
+\begin{lstlisting}[language=yaml]
+# Them vao moi workflow file can publish test report
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+\end{lstlisting}
+
+% ----------------------------------------------------------
+\subsubsection{Self-hosted Runner — Session conflict khi restart}
+
+\textbf{Triệu chứng:} Workflow queue mãi không chạy, runner hiển thị "offline" trên GitHub. Khi cố start runner:
+
+\begin{lstlisting}[language=bash]
+A session for this runner already exists
+\end{lstlisting}
+
+\textbf{Nguyên nhân:} Process \texttt{Runner.Listener} cũ chưa bị kill trước khi start runner mới. Thường xảy ra sau khi terminal SSH bị mất kết nối đột ngột.
+
+\textbf{Cách khắc phục:}
+
+\begin{lstlisting}[language=bash]
+# Kill process cu
+pkill -f "Runner.Listener" 2>/dev/null || true
+
+# Khoi dong lai runner
+cd ~/actions-runner
+nohup ./run.sh > runner.log 2>&1 &
+
+# Xac nhan
+ps aux | grep Runner.Listener | grep -v grep
+\end{lstlisting}
+
+% ----------------------------------------------------------
+\subsubsection{Staging Deploy — Image tag không tồn tại trên Docker Hub}
+
+\textbf{Triệu chứng:} Pod staging stuck ở \texttt{ImagePullBackOff}:
+
+\begin{lstlisting}[language=bash]
+Failed to pull image "npt219/yas-k3s-cart:v1.0.0":
+  manifest for npt219/yas-k3s-cart:v1.0.0 not found
+\end{lstlisting}
+
+\textbf{Nguyên nhân:} Workflow staging deploy dùng image tag = version tag (ví dụ \texttt{v1.0.0}). Nếu CI thất bại hoặc chưa push image với tag này, image không tồn tại trên Docker Hub. Vòng đời: tạo git tag \textrightarrow{} trigger staging workflow \textrightarrow{} cần image đã được push.
+
+\textbf{Cách khắc phục:}
+
+\begin{lstlisting}[language=yaml]
+# Option 1: Dung tag latest (an toan hon)
+# values-staging.yaml:
+backend:
+  image:
+    tag: latest
+
+# Option 2: Chay lai CI truoc khi tao git tag
+# 1. Dam bao CI da push image :latest thanh cong
+# 2. Tao tag moi -> staging workflow se build + push image voi tag day du
+git tag v1.0.1 && git push origin v1.0.1
+\end{lstlisting}
+
+% ----------------------------------------------------------
+\subsubsection{chart-releaser — Branch \texttt{gh-pages} không tồn tại}
+
+\textbf{Triệu chứng:} Workflow \texttt{charts-ci.yaml} thất bại:
+
+\begin{lstlisting}[language=bash]
+fatal: couldn't find remote ref refs/heads/gh-pages
+Error: origin/gh-pages not found
+\end{lstlisting}
+
+\textbf{Nguyên nhân:} \texttt{helm/chart-releaser-action} cần branch \texttt{gh-pages} để lưu Helm chart index (\texttt{index.yaml}). Repo mới fork chưa có branch này.
+
+\textbf{Cách khắc phục:}
+
+\begin{lstlisting}[language=bash]
+# Tao orphan branch gh-pages rong
+git checkout --orphan gh-pages
+git rm -rf .
+git commit --allow-empty -m "init gh-pages for chart releases"
+git push origin gh-pages
+git checkout main
+\end{lstlisting}
+
+Sau khi tạo xong, chạy lại workflow \texttt{charts-ci.yaml}. Nếu chart version không thay đổi dẫn đến \texttt{Error: release already exists}, thêm \texttt{skip\_existing: true} vào action config.
+
+% ============================================================
+\subsection{Vấn đề Application Services}
+
+% ----------------------------------------------------------
+\subsubsection{storefront-bff — Hostname \texttt{storefront-nextjs} không resolve}
+
+\textbf{Triệu chứng:}
+
+\begin{lstlisting}[language=bash]
+# storefront-bff logs:
+java.net.UnknownHostException:
+  Failed to resolve 'storefront-nextjs'
+  Query failed with NXDOMAIN
+\end{lstlisting}
+
+\textbf{Nguyên nhân:} File \texttt{application-prod.yaml} hardcode route:
+
+\begin{lstlisting}[language=yaml]
+- id: nextjs
+  uri: http://storefront-nextjs:3000
+\end{lstlisting}
+
+Nhưng trong K8s, frontend service được Helm chart đặt tên là \texttt{storefront-ui}, không phải \texttt{storefront-nextjs}. Docker Compose dùng tên khác với K8s service name.
+
+\textbf{Cách khắc phục:} Tạo ExternalName Service để alias tên cũ sang tên mới, không cần sửa application config:
+
+\begin{lstlisting}[language=yaml]
+# k8s/deploy/storefront-alias.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: storefront-nextjs
+  namespace: yas
+spec:
+  type: ExternalName
+  externalName: storefront-ui.yas.svc.cluster.local
+  ports:
+    - port: 3000
+\end{lstlisting}
+
+\begin{lstlisting}[language=bash]
+kubectl apply -f k8s/deploy/storefront-alias.yaml
+kubectl rollout restart deploy/storefront-bff -n yas
+\end{lstlisting}
+
+% ----------------------------------------------------------
+\subsubsection{payment-paypal — CrashLoopBackOff do JAR không có Main-Class}
+
+\textbf{Triệu chứng:}
+
+\begin{lstlisting}[language=bash]
+no main manifest attribute, in /app.jar
+\end{lstlisting}
+
+Pod \texttt{payment-paypal} liên tục CrashLoopBackOff ngay khi start.
+
+\textbf{Nguyên nhân:} Image Docker của payment-paypal bị lỗi build từ upstream (repo gốc) — file JAR không có \texttt{Main-Class} trong \texttt{MANIFEST.MF}. JVM không thể determine entry point để khởi động.
+
+\textbf{Cách khắc phục:} Service này là payment provider phụ, không ảnh hưởng đến luồng chính. Scale về 0 để loại bỏ noise từ CrashLoop:
+
+\begin{lstlisting}[language=bash]
+kubectl scale deploy/payment-paypal -n yas --replicas=0
+\end{lstlisting}
+
+Hoặc trong Helm values:
+
+\begin{lstlisting}[language=yaml]
+# values.yaml (hoac umbrella chart)
+payment-paypal:
+  backend:
+    replicaCount: 0
+\end{lstlisting}
+
+% ----------------------------------------------------------
+\subsubsection{Payment — Liquibase checksum mismatch}
+
+\textbf{Triệu chứng:} Pod \texttt{payment} CrashLoopBackOff, log có:
+
+\begin{lstlisting}[language=bash]
+Caused by: liquibase.exception.ValidationFailedException:
+  Validation Failed:
+    1 changesets check sum
+    ...was: 9:abc123... but is now: 9:def456...
+\end{lstlisting}
+
+\textbf{Nguyên nhân:} Image mới (từ CI build) có file migration Liquibase với checksum khác so với version đã apply trong database. Liquibase kiểm tra checksum mỗi changeset đã chạy — nếu source code thay đổi nội dung changeset sau khi DB đã apply version cũ, validation fail và từ chối khởi động.
+
+\textbf{Cách khắc phục:}
+
+\begin{lstlisting}[language=yaml]
+# Dung image tag co dinh da test hoat dong
+# values.yaml:
+backend:
+  image:
+    tag: "a3f2c91"   # tag cu on dinh, khong dung latest
+\end{lstlisting}
+
+Nếu muốn reset hoàn toàn (mất data):
+
+\begin{lstlisting}[language=bash]
+kubectl delete pvc data-postgres-payment-0 -n postgres
+kubectl delete pod postgres-payment-0 -n postgres
+kubectl rollout restart deploy/payment -n yas
+\end{lstlisting}
+
+% ----------------------------------------------------------
+\subsubsection{ServiceMonitor CRD không tìm thấy khi deploy service}
+
+\textbf{Triệu chứng:}
+
+\begin{lstlisting}[language=bash]
+Error: INSTALLATION FAILED: unable to build kubernetes objects:
+  resource mapping not found for name: "cart"
+  no matches for kind "ServiceMonitor"
+  in version "monitoring.coreos.com/v1"
+  ensure CRDs are installed first
+\end{lstlisting}
+
+\textbf{Nguyên nhân:} Helm chart backend có template \texttt{servicemonitoring.yaml} tạo \texttt{ServiceMonitor} resource (CRD của Prometheus Operator). Nếu cluster chưa cài Prometheus Operator (hoặc đã gỡ observability stack), CRD \texttt{monitoring.coreos.com/v1} không tồn tại và Helm không thể render manifest.
+
+\textbf{Cách khắc phục:}
+
+\begin{lstlisting}[language=yaml]
+# values.yaml — tat ServiceMonitor khi khong co Prometheus Operator
+serviceMonitor:
+  enabled: false
+\end{lstlisting}
+
+Nếu cài lại Prometheus Operator sau, chỉ cần đổi lại \texttt{enabled: true} và redeploy. Khi dùng umbrella chart, cần rebuild dependency:
+
+\begin{lstlisting}[language=bash]
+cd k8s/charts/yas-dev
+helm dependency update .
+helm dependency build .
+\end{lstlisting}
+
+% ----------------------------------------------------------
+\subsubsection{BFF Ingress conflict — backoffice-bff và storefront-bff cùng path \texttt{/}}
+
+\textbf{Triệu chứng:} Deploy cả \texttt{backoffice-bff} và \texttt{storefront-bff} trong cùng namespace — chỉ 1 trong 2 hoạt động, service còn lại trả 404 hoặc route sai.
+
+\begin{lstlisting}[language=bash]
+kubectl describe ingress -n dev
+# --> 2 ingress resource cung host + path "/"
+# ingress-nginx chỉ route đến 1 backend (cái tạo sau cùng)
+\end{lstlisting}
+
+\textbf{Nguyên nhân:} Cả 2 BFF đều cần path \texttt{/} vì chúng là gateway cho frontend. Khi 2 Ingress resource cùng host + path, ingress-nginx chỉ giữ lại 1 entry, overwrite entry kia.
+
+\textbf{Cách khắc phục:} Tách backoffice-bff ra subdomain riêng:
+
+\begin{lstlisting}[language=bash]
+# Storefront-bff: domain chinh
+helm upgrade --install storefront-bff ./storefront-bff \
+  --namespace dev \
+  --set backend.ingress.host="dev.yas.local.com"
+
+# Backoffice-bff: subdomain rieng
+helm upgrade --install backoffice-bff ./backoffice-bff \
+  --namespace dev \
+  --set backend.ingress.host="backoffice.dev.yas.local.com"
+\end{lstlisting}
+
+Thêm subdomain mới vào \texttt{/etc/hosts}:
+
+\begin{lstlisting}[language=bash]
+echo "172.16.0.240 backoffice.dev.yas.local.com" | sudo tee -a /etc/hosts
+\end{lstlisting}
+
