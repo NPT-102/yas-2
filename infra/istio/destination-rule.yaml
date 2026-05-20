@@ -8,6 +8,18 @@
 apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
 metadata:
+  name: mtls-nginx
+  namespace: yas
+spec:
+  host: nginx.yas.svc.cluster.local
+  exportTo: [".", "ingress-nginx"]
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
   name: mtls-backoffice-bff
   namespace: yas
 spec:

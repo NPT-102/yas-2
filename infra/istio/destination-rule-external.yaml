@@ -1,0 +1,78 @@
+# DestinationRule cho external services (ngoài namespace yas)
+# exportTo: [".", "yas"] để:
+#   - istio-system có thể dùng (.)
+#   - yas namespace có thể dùng khi gọi ra ngoài (kafka, elasticsearch, redis, keycloak, postgres)
+# mode: DISABLE vì các service này không có Istio sidecar → không dùng mTLS
+
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: elasticsearch-no-mtls
+  namespace: istio-system
+spec:
+  host: "*.elasticsearch.svc.cluster.local"
+  exportTo: ["."]
+  trafficPolicy:
+    tls:
+      mode: DISABLE
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: kafka-no-mtls
+  namespace: istio-system
+spec:
+  host: "*.kafka.svc.cluster.local"
+  exportTo: ["."]
+  trafficPolicy:
+    tls:
+      mode: DISABLE
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: keycloak-no-mtls
+  namespace: istio-system
+spec:
+  host: "*.keycloak.svc.cluster.local"
+  exportTo: ["."]
+  trafficPolicy:
+    tls:
+      mode: DISABLE
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: postgres-no-mtls
+  namespace: istio-system
+spec:
+  host: postgresql.postgres.svc.cluster.local
+  exportTo: ["."]
+  trafficPolicy:
+    tls:
+      mode: DISABLE
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: redis-no-mtls
+  namespace: istio-system
+spec:
+  host: "*.redis.svc.cluster.local"
+  exportTo: ["."]
+  trafficPolicy:
+    tls:
+      mode: DISABLE
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: kubernetes-api-no-mtls
+  namespace: istio-system
+spec:
+  host: kubernetes.default.svc.cluster.local
+  exportTo: ["."]
+  trafficPolicy:
+    tls:
+      mode: DISABLE

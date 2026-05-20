@@ -1,382 +1,216 @@
 # YAS Service Mesh — Test Scenarios
 
-Tài liệu này mô tả các kịch bản kiểm thử Service Mesh (Istio) đã được thực hiện trên cụm YAS, bao gồm mTLS, AuthorizationPolicy, DestinationRule và Retry.
+Kiểm thử Service Mesh (Istio) trên cụm YAS: mTLS, AuthorizationPolicy, DestinationRule, Retry.
+Demo flow 10 phút: Pre-check → KC1 mTLS → KC2 AuthZ → KC3 DestinationRule → KC4 Retry → KC5 Kiali.
 
 ---
 
-## Kiến trúc tổng quan
+## Kiến trúc
 
 ```
-Internet
-   │
-   ▼
-ingress-nginx (namespace: ingress-nginx, có Istio sidecar)
-   │  mTLS ISTIO_MUTUAL (DestinationRule exportTo ingress-nginx)
-   ▼
-backoffice-bff / storefront-bff  (namespace: yas)
-   │  mTLS ISTIO_MUTUAL
-   ▼
-product / cart / order / customer / inventory / tax / media / search
-   │
-   ▼ (Kafka, PostgreSQL — ngoài mesh)
+Internet → ingress-nginx (sidecar) ──mTLS ISTIO_MUTUAL──▶ yas namespace
+                                                           ├─ backoffice-bff / storefront-bff
+                                                           └─ product / cart / order / customer / inventory / tax / media / search
+                                                                │
+                                                                ▼ (out-of-mesh: Kafka, PostgreSQL, Redis, Elasticsearch)
 ```
-
-Tất cả pod trong namespace `yas` và `ingress-nginx` đều được inject Istio sidecar (`istio-proxy`).
 
 ---
 
-## Kịch bản 1: Xác nhận mTLS STRICT hoạt động
+## Pre-check (30 giây)
 
-### Mục tiêu
-
-Đảm bảo toàn bộ traffic trong namespace `yas` đều dùng mTLS, không có plain-text connection.
-
-### Cấu hình liên quan
-
-- `infra/istio/peer-authentication.yaml`: `PeerAuthentication` mode `STRICT`
-- `infra/istio/destination-rule.yaml`: `DestinationRule` mode `ISTIO_MUTUAL` cho từng service
-
-### Cách kiểm tra
-
-**1. Kiểm tra PeerAuthentication đã được apply:**
 ```bash
-kubectl get peerauthentication -n yas
-# Expected: default-mtls   STRICT
+# Xác nhận tất cả pod yas đang chạy 2/2
+kubectl get pods -n yas
+
+# Xác nhận các Istio resource đã apply
+kubectl get peerauthentication,destinationrule,authorizationpolicy,virtualservice -n yas
+# Expected:
+#   peerauthentication: default-mtls (STRICT)
+#   destinationrule:    mtls-product, mtls-cart, ... (14 DRs)
+#   authorizationpolicy: deny-all + 7 allow rules
+#   virtualservice:     product-retry, cart-retry, order-retry, tax-retry
 ```
 
-**2. Xem Kiali — Security indicators:**
-- Truy cập `http://kiali.yas.local.com`
-- Vào **Graph → Namespace: yas**
-- Các edge giữa service phải có biểu tượng khóa (lock icon) màu xanh
+---
 
-**3. Thử gọi trực tiếp không dùng mTLS (từ pod không có sidecar):**
+## KC1: mTLS STRICT (~2 phút)
+
+**Mục tiêu:** Chứng minh plain-text bị từ chối, in-mesh traffic được chấp nhận.
+
+**Files:** `infra/istio/peer-authentication.yaml`, `infra/istio/destination-rule.yaml`
+
 ```bash
-# Tạo pod test không có sidecar
-kubectl run test-no-sidecar --image=curlimages/curl \
-  --namespace=default \
-  --labels='sidecar.istio.io/inject=false' \
-  --rm -it -- sh
+# [FAIL expected] Pod không có sidecar → bị STRICT mode từ chối
+kubectl run test-no-sidecar --image=curlimages/curl:8.5.0 -n default --restart=Never -- sleep 60
+kubectl wait --for=condition=Ready pod/test-no-sidecar -n default --timeout=30s
+kubectl exec -n default test-no-sidecar -- \
+  curl -s -o /dev/null -w "%{http_code}\n" --max-time 5 \
+  "http://product.yas.svc.cluster.local/product/storefront/products?pageNo=0&pageSize=2"
+# Expected: 000 (connection reset — không có mTLS cert)
+kubectl delete pod test-no-sidecar -n default
 
-# Thử gọi service trong namespace yas
-curl http://product.yas.svc.cluster.local/api/product/storefront/products/paging
-# Expected: connection refused hoặc RBAC denied (vì không có mTLS cert)
+# [PASS expected] BFF có sidecar → 200 OK
+kubectl exec -n yas deploy/storefront-bff -c storefront-bff -- \
+  wget -qS -O/dev/null --timeout=5 \
+  "http://product.yas.svc.cluster.local/product/storefront/products?pageNo=0&pageSize=2" 2>&1 | grep "HTTP/"
+# Expected: HTTP/1.1 200 OK
 ```
-
-**4. Gọi từ pod có sidecar (BFF):**
-```bash
-kubectl exec -n yas deploy/backoffice-bff -c backoffice-bff -- \
-  curl -s http://product.yas.svc.cluster.local/api/product/storefront/products/paging | head -c 200
-# Expected: 200 OK với JSON response
-```
-
-### Kết quả mong đợi
 
 | Test | Expected |
 |---|---|
-| Pod không sidecar → yas service | Connection refused / RBAC denied |
-| Pod có sidecar (in-mesh) → yas service | 200 OK |
-| Kiali lock icons | Hiển thị trên tất cả edge trong namespace yas |
+| Pod không sidecar → product | `000` connection reset |
+| storefront-bff → product | `200 OK` |
 
 ---
 
-## Kịch bản 2: AuthorizationPolicy — Deny-all + Allow rules
+## KC2: AuthorizationPolicy — Deny-all + Allow rules (~2 phút)
 
-### Mục tiêu
+**Mục tiêu:** Chứng minh deny-all chặn pod không được whitelist, còn BFF và order được phép.
 
-Xác nhận rằng `deny-all` policy chặn mọi traffic không được whitelist, và chỉ các service được phép mới giao tiếp được với nhau.
-
-### Cấu hình liên quan
-
-- `infra/istio/authorization-policy.yaml`
-
-### Các policy đã cấu hình
+**File:** `infra/istio/authorization-policy.yaml`
 
 | Policy | Source | Destination |
 |---|---|---|
-| `deny-all` | (default deny) | Toàn bộ namespace `yas` |
-| `allow-ingress-to-yas` | `ingress-nginx` SA | Toàn bộ namespace `yas` |
-| `allow-bff-to-backends` | `backoffice-bff`, `storefront-bff` SA | Toàn bộ namespace `yas` |
-| `allow-order-dependencies` | `order` SA | `cart` service |
-| `allow-order-to-tax` | `order` SA | `tax` service |
-| `allow-order-to-inventory` | `order` SA | `inventory` service |
-| `allow-order-to-customer` | `order` SA | `customer` service |
-| `allow-search-to-product` | `search` SA | `product` service |
+| `deny-all` | — | Toàn bộ namespace `yas` |
+| `allow-ingress-to-yas` | ingress-nginx SA | Toàn bộ namespace `yas` |
+| `allow-bff-to-backends` | backoffice-bff, storefront-bff SA | Toàn bộ namespace `yas` |
+| `allow-order-dependencies` | order SA | cart, tax, inventory, customer |
+| `allow-search-to-product` | search SA | product |
 
-### Cách kiểm tra
-
-**Test 1: ingress-nginx → yas service (phải PASS)**
 ```bash
-# Gọi thông qua ingress
-curl -v http://api.yas.local.com/api/product/storefront/products/paging
-# Expected: 200 OK
+# [FAIL expected] Pod yas không có SA trong whitelist → 403
+kubectl run curl-test-rbac --image=curlimages/curl:8.5.0 -n yas --restart=Never -- sleep 120
+kubectl wait --for=condition=Ready pod/curl-test-rbac -n yas --timeout=30s
+kubectl exec -n yas curl-test-rbac -- \
+  curl -s -o /dev/null -w "%{http_code}\n" --max-time 5 \
+  "http://product.yas.svc.cluster.local/product/storefront/products?pageNo=0&pageSize=2"
+# Expected: 403 RBAC denied
+kubectl delete pod curl-test-rbac -n yas
+
+# [PASS expected] Gọi qua ingress (SA ingress-nginx được whitelist) → 200
+curl -s -o /dev/null -w "%{http_code}\n" \
+  "http://api.yas.local.com/product/storefront/products?pageNo=0&pageSize=5"
+# Expected: 200
+
+# [PASS expected] storefront-bff → product (SA trong whitelist) → 200
+kubectl exec -n yas deploy/storefront-bff -c storefront-bff -- \
+  wget -qS -O/dev/null --timeout=5 \
+  "http://product.yas.svc.cluster.local/product/storefront/products?pageNo=0&pageSize=2" 2>&1 | grep "HTTP/"
+# Expected: HTTP/1.1 200 OK
 ```
-
-**Test 2: Service không được phép → service khác (phải FAIL)**
-```bash
-# Thử gọi từ product → cart (không có policy cho phép)
-kubectl exec -n yas deploy/product -c product -- \
-  curl -s -o /dev/null -w "%{http_code}" http://cart.yas.svc.cluster.local/api/cart
-# Expected: 403 RBAC: access denied
-```
-
-**Test 3: order → cart (phải PASS)**
-```bash
-kubectl exec -n yas deploy/order -c order -- \
-  curl -s -o /dev/null -w "%{http_code}" http://cart.yas.svc.cluster.local/api/cart/items/count
-# Expected: 200 (hoặc 401 nếu cần auth token — không phải 403)
-```
-
-**Test 4: Xem logs Envoy để xác nhận RBAC:**
-```bash
-kubectl logs -n yas deploy/cart -c istio-proxy | grep -i "rbac\|denied\|allowed" | tail -20
-```
-
-### Kết quả mong đợi
-
-| Caller | Target | Expected |
-|---|---|---|
-| ingress-nginx | product | 200 OK |
-| product | cart | 403 RBAC denied |
-| order | cart | 200 OK / 401 |
-| search | product | 200 OK |
-| storefront-bff | product | 200 OK |
 
 ---
 
-## Kịch bản 3: DestinationRule — ISTIO_MUTUAL exportTo ingress-nginx
+## KC3: DestinationRule exportTo ingress-nginx (~1 phút)
 
-### Mục tiêu
+**Mục tiêu:** Xác nhận DR được export đúng tới ingress-nginx và traffic ổn định qua mesh.
 
-Xác nhận DestinationRule được export đúng cách tới namespace `ingress-nginx`, cho phép sidecar của ingress-nginx thiết lập mTLS khi forward request vào namespace `yas`.
+**File:** `infra/istio/destination-rule.yaml` — `exportTo: [".", "ingress-nginx"]`
 
-### Cấu hình liên quan
-
-- `infra/istio/destination-rule.yaml`: `exportTo: [".", "ingress-nginx"]`
-
-### Cách kiểm tra
-
-**1. Xem DestinationRule đã apply:**
 ```bash
-kubectl get destinationrule -n yas
-# Expected: danh sách mtls-backoffice-bff, mtls-cart, mtls-product, ...
+# Xác nhận ingress-nginx nhận DR và biết TLS mode ISTIO_MUTUAL cho yas services
+istioctl proxy-config cluster -n ingress-nginx deploy/ingress-nginx-controller | grep "yas\|product\|cart"
+# Expected: các entry yas.svc với TLS mode ISTIO_MUTUAL
+
+# Traffic generator — toàn bộ 17 endpoint ổn định
+YAS_DOMAIN=yas.local.com node infra/scripts/generate-traffic.js
+# Expected: 16 OK, 1 redirect (backoffice→Keycloak), 0 auth-blocked, 0 fail
 ```
-
-**2. Kiểm tra Envoy config của ingress-nginx có nhận DR không:**
-```bash
-kubectl exec -n ingress-nginx deploy/ingress-nginx-controller -c controller -- \
-  curl -s localhost:15000/config_dump | \
-  python3 -c "import sys,json; d=json.load(sys.stdin); [print(c['name']) for c in d.get('configs',[]) if 'dynamic_cluster' in c.get('@type','')]" 2>/dev/null || \
-  istioctl proxy-config cluster -n ingress-nginx deploy/ingress-nginx-controller | grep yas
-# Expected: cluster entries cho các service trong yas với TLS mode ISTIO_MUTUAL
-```
-
-**3. Traffic generator — xác nhận 0 fail:**
-```bash
-YAS_DOMAIN=yas.local.com YAS_INTERVAL_MS=1500 node infra/scripts/generate-traffic.js
-# Expected: 17 OK, 1 redirect (Keycloak), 0 auth-blocked, 0 fail
-```
-
-### Kết quả mong đợi
-
-- `istioctl proxy-config cluster` cho ingress-nginx hiển thị services của `yas` với TLS mode `ISTIO_MUTUAL`
-- Traffic generator không có `fail` count
 
 ---
 
-## Kịch bản 4: VirtualService Retry — Tự động retry khi 5xx
+## KC4: VirtualService Retry — 5xx (~2 phút)
 
-### Mục tiêu
+**Mục tiêu:** Fault injection 30% abort → retry tự bù đắp, client nhận 200.
 
-Xác nhận Istio tự động retry request khi service trả về lỗi 5xx, giảm thiểu lỗi thoáng qua (transient error).
+**File:** `infra/istio/virtual-service-retry.yaml` — 3 attempts, 2s per-try, retryOn: 5xx
 
-### Cấu hình liên quan
-
-- `infra/istio/virtual-service-retry.yaml`
-
-| Service | Attempts | Per-try Timeout | Retry On |
-|---|---|---|---|
-| `tax` | 3 | 2s | `5xx` |
-| `order` | 3 | 3s | `5xx` |
-| `cart` | 3 | 2s | `5xx` |
-| `product` | 3 | 2s | `5xx` |
-
-### Cách kiểm tra
-
-**Test 1: Xem VirtualService đã apply:**
 ```bash
-kubectl get virtualservice -n yas
-# Expected: tax-retry, order-retry, cart-retry, product-retry
-kubectl describe virtualservice tax-retry -n yas
-# Expected: retries.attempts=3, perTryTimeout=2s, retryOn=5xx
-```
+# Lấy JWT token
+TOKEN=$(curl -s -X POST "http://identity.yas.local.com/realms/Yas/protocol/openid-connect/token" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "grant_type=password&client_id=storefront-bff&client_secret=ZrU9I0q2uXBglBnmvyJdkl1lf0ncr8tn&username=admin&password=admin&scope=openid" \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
 
-**Test 2: Mô phỏng 5xx bằng cách scale down tạm thời (fault injection):**
-```bash
-# Inject fault cho tax service — 50% requests trả 500
-cat <<EOF | kubectl apply -f -
-apiVersion: networking.istio.io/v1alpha3
+# Inject 30% fault vào tax (cùng giữ retry 3 lần)
+kubectl apply -f - <<'EOF'
+apiVersion: networking.istio.io/v1beta1
 kind: VirtualService
 metadata:
-  name: tax-fault-test
+  name: tax-retry
   namespace: yas
 spec:
-  hosts:
-  - tax
+  hosts: [tax]
   http:
   - fault:
       abort:
-        percentage:
-          value: 50
+        percentage: {value: 30}
         httpStatus: 500
-    route:
-    - destination:
-        host: tax
     retries:
       attempts: 3
       perTryTimeout: 2s
       retryOn: 5xx
+    route:
+    - destination: {host: tax}
 EOF
 
-# Gọi endpoint qua BFF và quan sát — với retry, caller nhận 200 thay vì 500
-curl http://api.yas.local.com/api/tax/...
-# Expected: 200 OK (Istio đã retry thành công)
-```
+# Gọi 10 lần — 30% fault + 3 retries → tất cả phải là 200
+for i in $(seq 1 10); do
+  curl -s -o /dev/null -w "%{http_code} " --max-time 8 \
+    -H "Authorization: Bearer $TOKEN" \
+    "http://api.yas.local.com/tax/backoffice/tax-classes"
+done; echo
+# Expected: 200 200 200 200 200 200 200 200 200 200
 
-**Test 3: Xem metrics retry trong Prometheus:**
-```bash
-curl -s "http://prometheus.yas.local.com/api/v1/query?query=envoy_cluster_upstream_rq_retry_total%7Bcluster_name%3D~%22.*tax.*%22%7D" \
-  | python3 -m json.tool
-# Expected: retry counter tăng khi có fault injection
-```
-
-**Dọn dẹp sau khi test:**
-```bash
-kubectl delete virtualservice tax-fault-test -n yas
 # Restore VirtualService gốc
 kubectl apply -f infra/istio/virtual-service-retry.yaml
 ```
 
-### Kết quả mong đợi
+| Fault rate | Attempts | Xác suất fail còn lại | Expected |
+|---|---|---|---|
+| 30% | 3 | 0.3³ = 2.7% | Gần như toàn 200 |
+| 80% | 3 | 0.8³ = 51.2% | Mix 200/500 |
 
-| Scenario | Without Retry | With Retry (3 attempts) |
+---
+
+## KC5: Kiali Visualization (~1 phút)
+
+**URL:** `http://kiali.yas.local.com`
+
+| Mục kiểm tra | Điều hướng | Expected |
 |---|---|---|
-| tax 50% fail | ~50% request trả 500 | ~12.5% trả 500 (0.5^3) |
-| tax 100% fail | 100% trả 500 | 100% trả 500 (retry không giúp được) |
-| tax < 100% fail (transient) | Fail thoáng qua | Transparent recovery |
+| mTLS lock icons | Graph → Namespace: yas → bật Security layer | Lock icon trên tất cả edge |
+| Không có validation error | Istio Config → Namespace: yas | Tất cả `✓ Valid` |
+| Workload healthy | Workloads → Namespace: yas | Tất cả `Healthy`, pods `2/2` |
+| Error rate = 0% | Services → product → Inbound Metrics | Error Rate: 0% |
 
 ---
 
-## Kịch bản 5: Traffic Generator — Kiểm tra toàn bộ endpoint
+## Tóm tắt kết quả (20/05/2026)
 
-### Mục tiêu
+| Kịch bản | Lệnh kiểm tra | Kết quả |
+|---|---|---|
+| mTLS — pod không sidecar bị từ chối | curl từ default namespace | `000` connection reset — PASS ✓ |
+| mTLS — BFF in-mesh được phép | wget từ storefront-bff | `200 OK` — PASS ✓ |
+| AuthZ deny-all | curl từ pod không có SA whitelist | `403` RBAC denied — PASS ✓ |
+| AuthZ allow rules | curl qua ingress, wget từ BFF | `200 OK` — PASS ✓ |
+| DestinationRule exportTo ingress-nginx | Traffic generator | `16 OK, 0 fail` stable — PASS ✓ |
+| Retry 30% fault + 3 attempts | 10 calls với 30% abort | Tất cả `200` — PASS ✓ |
+| Retry 80% fault (over-threshold) | 10 calls với 80% abort | Mix 200/500 — PASS ✓ |
+| Kiali mTLS visualization | `http://kiali.yas.local.com` | Lock icons, 0 warnings — PASS ✓ |
 
-Chạy traffic generator liên tục để xác nhận toàn bộ 18 endpoint (17 OK + 1 auth-redirect) hoạt động ổn định qua service mesh.
+---
 
-### Cách chạy
+## Lệnh hữu ích
 
 ```bash
-cd /home/npt102/DEVOPS-PRJ2/yas-2
-YAS_DOMAIN=yas.local.com YAS_INTERVAL_MS=1500 node infra/scripts/generate-traffic.js
-```
-
-### Giải thích output
-
-```
-[10:00:00 PM] Round 100 — 17 OK, 1 redirect/auth-redirect, 0 auth-blocked, 0 fail
-```
-
-| Trường | Ý nghĩa |
-|---|---|
-| `17 OK` | 17 endpoint public/API trả `2xx` |
-| `1 redirect/auth-redirect` | 1 endpoint (thường `/storefront` UI) redirect sang Keycloak login — đây là **expected** |
-| `0 auth-blocked` | Không có endpoint nào bị AuthorizationPolicy chặn (403) |
-| `0 fail` | Không có endpoint nào trả `5xx` hoặc timeout |
-
-### Kết quả đạt được
-
-Sau **1142+ rounds** liên tục:
-- `0 fail` — Không có service nào down
-- `0 auth-blocked` — AuthorizationPolicy cấu hình đúng, không chặn traffic hợp lệ
-- `17 OK` stable — Tất cả service đáp ứng request
-- `1 redirect` — Keycloak auth redirect hoạt động đúng
-
----
-
-## Kịch bản 6: Kiali — Service Graph và mTLS Visualization
-
-### Mục tiêu
-
-Xác nhận Kiali hiển thị đúng service graph với mTLS lock icons và không có validation error.
-
-### Truy cập Kiali
-
-```
-http://kiali.yas.local.com
-```
-
-### Các điểm kiểm tra
-
-**1. Service Graph:**
-- Vào **Graph → Namespace: yas**
-- Bật **Security** layer → Các edge phải hiển thị **mTLS lock icon**
-- Không có edge màu đỏ (connection error)
-
-**2. Istio Config Validation:**
-- Vào **Istio Config → Namespace: yas**
-- Tất cả resource phải có status `✓ Valid` (không có `✗ Invalid` hoặc `⚠ Warning`)
-- Lưu ý: Wildcard host trong DestinationRule gây lỗi validation — đã fix bằng cách tạo riêng từng DR cho từng service
-
-**3. Workload Health:**
-- Vào **Workloads → Namespace: yas**
-- Tất cả workload phải ở trạng thái `Healthy` (biểu tượng xanh)
-- Pods phải có đúng số sidecar (`2/2`)
-
-**4. Application metrics trong Kiali:**
-- Vào từng service (vd: `product`) → **Inbound Metrics**
-- Verify: Request Rate, Error Rate (phải = 0%), Response Time
-
-### Kết quả mong đợi
-
-| Mục | Expected |
-|---|---|
-| mTLS lock icons | Hiển thị trên tất cả edge trong namespace yas |
-| Istio Config validation | Tất cả `Valid` |
-| Workload health | Tất cả `Healthy` |
-| Error rate | 0% (dựa trên traffic generator) |
-
----
-
-## Tóm tắt kết quả kiểm thử
-
-| Kịch bản | Kết quả |
-|---|---|
-| mTLS STRICT — plain-text bị chặn | PASS |
-| AuthorizationPolicy deny-all | PASS |
-| Allow rules cho BFF → backends | PASS |
-| Allow rules cho order → cart/tax/inventory/customer | PASS |
-| DestinationRule exportTo ingress-nginx | PASS |
-| VirtualService Retry 5xx | PASS (cấu hình sẵn sàng) |
-| Traffic generator 1000+ rounds 0 fail | PASS |
-| Kiali mTLS visualization | PASS |
-
----
-
-## Lệnh kiểm tra nhanh
-
-```bash
-# Tổng quan mesh config
-kubectl get peerauthentication,destinationrule,authorizationpolicy,virtualservice -n yas
-
-# Istio validation
+# Kiểm tra nhanh toàn bộ Istio config
 istioctl analyze -n yas
 
-# Proxy config của một service cụ thể
-istioctl proxy-config listener -n yas deploy/product
-istioctl proxy-config cluster -n yas deploy/product
-
-# Check mTLS connections
+# TLS check một service
 istioctl authn tls-check -n yas product.yas.svc.cluster.local
 
-# Envoy access log (xem request đến service)
+# Envoy access log (bỏ liveness probe)
 kubectl logs -n yas deploy/cart -c istio-proxy --tail=50 | grep -v "kube-probe\|health"
 ```
