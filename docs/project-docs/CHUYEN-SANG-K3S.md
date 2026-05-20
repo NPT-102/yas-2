@@ -238,7 +238,8 @@ Worker cần connect vào port 6443 (API server) và 10250 (kubelet) của contr
 # Chạy trên máy CONTROL PLANE
 sudo firewall-cmd --permanent --add-port=6443/tcp    # Kubernetes API
 sudo firewall-cmd --permanent --add-port=10250/tcp   # Kubelet metrics
-sudo firewall-cmd --permanent --add-port=8472/udp    # Flannel VXLAN (overlay network)
+# 8472/udp (Flannel VXLAN) KHÔNG cần — cluster này dùng flannel-backend: host-gw
+# host-gw dùng L3 routing trực tiếp, không có UDP tunnel
 sudo firewall-cmd --reload
 
 echo "Firewall updated"

@@ -28,7 +28,7 @@ spec:
           - "cluster.local/ns/ingress-nginx/sa/ingress-nginx"
 
 ---
-# Cho phép BFF gọi đến tất cả backend services
+# Cho phép BFF và nginx reverse proxy gọi đến tất cả backend services
 apiVersion: security.istio.io/v1beta1
 kind: AuthorizationPolicy
 metadata:
@@ -42,6 +42,7 @@ spec:
         principals:
           - "cluster.local/ns/yas/sa/backoffice-bff"
           - "cluster.local/ns/yas/sa/storefront-bff"
+          - "cluster.local/ns/yas/sa/nginx"
 
 ---
 # Cho phép order gọi đến cart, payment, inventory, tax, customer

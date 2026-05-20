@@ -1,9 +1,4 @@
-# Nâng cao: Service Mesh - Retry policies
-# Nếu service trả lỗi 5xx thì retry tự động
-
----
-# Retry cho tax service
-apiVersion: networking.istio.io/v1alpha3
+apiVersion: networking.istio.io/v1beta1
 kind: VirtualService
 metadata:
   name: tax-retry
@@ -15,14 +10,15 @@ spec:
   - route:
     - destination:
         host: tax
+        port:
+          number: 80
     retries:
       attempts: 3
       perTryTimeout: 2s
       retryOn: 5xx
 
 ---
-# Retry cho order service
-apiVersion: networking.istio.io/v1alpha3
+apiVersion: networking.istio.io/v1beta1
 kind: VirtualService
 metadata:
   name: order-retry
@@ -34,14 +30,15 @@ spec:
   - route:
     - destination:
         host: order
+        port:
+          number: 80
     retries:
       attempts: 3
       perTryTimeout: 3s
       retryOn: 5xx
 
 ---
-# Retry cho cart service
-apiVersion: networking.istio.io/v1alpha3
+apiVersion: networking.istio.io/v1beta1
 kind: VirtualService
 metadata:
   name: cart-retry
@@ -53,15 +50,15 @@ spec:
   - route:
     - destination:
         host: cart
+        port:
+          number: 80
     retries:
       attempts: 3
       perTryTimeout: 2s
       retryOn: 5xx
 
-
 ---
-# Retry cho product service
-apiVersion: networking.istio.io/v1alpha3
+apiVersion: networking.istio.io/v1beta1
 kind: VirtualService
 metadata:
   name: product-retry
@@ -73,6 +70,8 @@ spec:
   - route:
     - destination:
         host: product
+        port:
+          number: 80
     retries:
       attempts: 3
       perTryTimeout: 2s
