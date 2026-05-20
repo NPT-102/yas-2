@@ -28,3 +28,4 @@ Thư mục này gom toàn bộ tài liệu Markdown nội bộ của project, ng
 
 - Các file `README.md` của từng module vẫn được giữ tại chỗ để không làm mất entry point mặc định của module đó.
 - Nếu phát sinh thêm tài liệu nội bộ mới, đặt vào thư mục này thay vì để ở root repo.
+- Khi một tài liệu nội bộ không còn phản ánh trạng thái hiện tại, nên cập nhật hoặc gỡ khỏi index để tránh người đọc đi theo link cũ.
